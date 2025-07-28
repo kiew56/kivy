@@ -1,3 +1,5 @@
+name: Build Android APK
+
 on:
   push:
     branches: [ main ]
@@ -5,15 +7,21 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
-      - name: Build APK
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libtinfo6
+        
+      - name: Build APK with Buildozer
         uses: digreatbrian/buildozer-action@v2
         with:
           python-version: 3.8
           buildozer-cmd: buildozer -v android debug
-
-      - name: Upload artifacts
+          
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: package
