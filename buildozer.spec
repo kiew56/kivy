@@ -7,11 +7,11 @@ title = IsiZulu_AI_writer_Assistant
 package.name = myapp
 
 # (str) Package domain (needed for android/ios packaging)
-package.domain = org.test
+package.domain = org.SPACEtech
 
 # (str) Source code where the main.py live
 source.dir = .
-android.aab = False
+
 
 # (list) Source files to include (let empty to include all the files)
 source.include_exts = 
