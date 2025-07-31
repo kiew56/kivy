@@ -304,7 +304,7 @@ class APIClient:
         self.api_key = api_key
         self.base_url = OPENROUTER_API_URL
     
-    async def generate_text(self, prompt: str, model: str = "deepseek/deepseek-r1:free") -> str:
+    async def generate_text(self, prompt: str, model: str = "deepseek/deepseek-r1-0528:free") -> str:
         """Generate text using OpenRouter API with proper async handling."""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
