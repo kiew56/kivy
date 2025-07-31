@@ -40,8 +40,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration - Use environment variables for security
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_API_KEY = os.getenv("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")
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
 
 # Color scheme
 PRIMARY_COLOR = "#1FAB78"
