@@ -1,7 +1,7 @@
 # requirements.txt
-flet>=0.21.0
+flet>=0.25.0
 requests>=2.31.0
-asyncio-compat>=0.1.2
+asyncio-compat
 python-dotenv>=1.0.0
 pydantic>=2.0.0
 aiofiles>=23.1.0
