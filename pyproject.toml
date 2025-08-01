@@ -14,7 +14,7 @@ dependencies = [
 [tool.flet]
 org = "com.kiew"
 product = "MyApp"
-company = ""
+company = "IsiZulu AI writer assistant"
 copyright = "Copyright (C) 2025 by "
 
 [tool.flet.app]
