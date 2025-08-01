@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [tool.flet]
-org = "com."
+org = "com.kiew"
 product = "MyApp"
 company = ""
 copyright = "Copyright (C) 2025 by "
