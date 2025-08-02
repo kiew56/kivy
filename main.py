@@ -49,35 +49,44 @@ class AdManager:
     
     def _create_ads(self):
         """Create all ad instances."""
-        # Create banner ad
-        self.banner_ad = ads.BannerAd(
-            unit_id=self.banner_id,
-            width=320,
-            height=50,
-            on_load=lambda e: logger.info("Banner ad loaded"),
-            on_error=lambda e: logger.error(f"Banner ad error: {e.data}"),
-            on_click=lambda e: logger.info("Banner ad clicked"),
-            on_impression=lambda e: logger.info("Banner ad impression")
-        )
-        
-        # Create interstitial ad
-        self._create_new_interstitial()
+        try:
+            # Create banner ad
+            self.banner_ad = ads.BannerAd(
+                unit_id=self.banner_id,
+                width=320,
+                height=50,
+                on_load=lambda e: logger.info("Banner ad loaded"),
+                on_error=lambda e: logger.error(f"Banner ad error: {e.data}"),
+                on_click=lambda e: logger.info("Banner ad clicked"),
+                on_impression=lambda e: logger.info("Banner ad impression")
+            )
+            
+            # Create interstitial ad
+            self._create_new_interstitial()
+        except Exception as e:
+            logger.error(f"Error creating ads: {e}")
+            self.banner_ad = None
+            self.current_interstitial = None
     
     def _create_new_interstitial(self):
         """Create a new interstitial ad instance."""
-        self.current_interstitial = ads.InterstitialAd(
-            unit_id=self.interstitial_id,
-            on_load=lambda e: logger.info("Interstitial ad loaded"),
-            on_error=lambda e: logger.error(f"Interstitial ad error: {e.data}"),
-            on_open=lambda e: logger.info("Interstitial ad opened"),
-            on_close=self._on_interstitial_close,
-            on_impression=lambda e: logger.info("Interstitial ad impression"),
-            on_click=lambda e: logger.info("Interstitial ad clicked")
-        )
-        
-        # Add to overlay if not already present
-        if self.current_interstitial not in self.page.overlay:
-            self.page.overlay.append(self.current_interstitial)
+        try:
+            self.current_interstitial = ads.InterstitialAd(
+                unit_id=self.interstitial_id,
+                on_load=lambda e: logger.info("Interstitial ad loaded"),
+                on_error=lambda e: logger.error(f"Interstitial ad error: {e.data}"),
+                on_open=lambda e: logger.info("Interstitial ad opened"),
+                on_close=self._on_interstitial_close,
+                on_impression=lambda e: logger.info("Interstitial ad impression"),
+                on_click=lambda e: logger.info("Interstitial ad clicked")
+            )
+            
+            # Add to overlay if not already present
+            if self.current_interstitial and self.current_interstitial not in self.page.overlay:
+                self.page.overlay.append(self.current_interstitial)
+        except Exception as e:
+            logger.error(f"Error creating interstitial ad: {e}")
+            self.current_interstitial = None
     
     def _on_interstitial_close(self, e):
         """Handle interstitial ad close - grant reward when used as reward ad."""
@@ -129,6 +138,8 @@ class AdManager:
                 logger.error(f"Failed to show reward ad: {e}")
                 # Fallback: simulate reward for testing
                 self._simulate_reward()
+        else:
+            self._simulate_reward()
     
     def _simulate_reward(self):
         """Simulate reward for testing when ads fail."""
@@ -146,13 +157,24 @@ class AdManager:
     
     def create_banner_container(self) -> ft.Container:
         """Create a container with banner ad."""
-        return ft.Container(
-            content=self.banner_ad,
-            width=320,
-            height=50,
-            bgcolor=ft.colors.TRANSPARENT,
-            alignment=ft.alignment.center
-        )
+        if self.banner_ad:
+            return ft.Container(
+                content=self.banner_ad,
+                width=320,
+                height=50,
+                bgcolor=ft.colors.TRANSPARENT,
+                alignment=ft.alignment.center
+            )
+        else:
+            # Placeholder when ads are not available
+            return ft.Container(
+                content=ft.Text("Ad Space", size=12, color=ft.colors.GREY_400),
+                width=320,
+                height=50,
+                bgcolor=ft.colors.GREY_100,
+                alignment=ft.alignment.center,
+                border_radius=5
+            )
 
 class GenerationManager:
     """Enhanced generation management with reward system."""
@@ -216,10 +238,10 @@ class DataManager:
             return self._get_fallback_data(description)
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in {filename}: {e}")
-            return {}
+            return self._get_fallback_data(description)
         except Exception as e:
             logger.error(f"Error loading {filename}: {e}")
-            return {}
+            return self._get_fallback_data(description)
     
     def _get_fallback_data(self, description: str) -> Dict[str, str]:
         """Provide fallback data when files are missing."""
@@ -313,11 +335,10 @@ class APIClient:
         except Exception as e:
             raise Exception(f"API error: {str(e)}")
 
-class BaseScreen(ft.UserControl):
+class BaseScreen:
     """Base class for all screens with common functionality."""
     
     def __init__(self, page: ft.Page, ad_manager: AdManager):
-        super().__init__()
         self.page = page
         self.ad_manager = ad_manager
     
@@ -512,11 +533,12 @@ class EssayScreen(BaseScreen):
     """Essay generation screen with ad integration."""
     
     def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager, 
-                 api_client: APIClient, generation_manager: GenerationManager):
+                 api_client: APIClient, generation_manager: GenerationManager, navigate_to: Callable):
         super().__init__(page, ad_manager)
         self.data_manager = data_manager
         self.api_client = api_client
         self.generation_manager = generation_manager
+        self.navigate_to = navigate_to
         self.is_generating = False
         
         self.topic_input = ft.TextField(
@@ -678,7 +700,7 @@ Please write the essay entirely in isiZulu, ensuring it flows naturally and educ
                         ft.IconButton(
                             ft.icons.ARROW_BACK,
                             icon_color=PRIMARY_COLOR,
-                            on_click=lambda e: asyncio.create_task(self.page.parent.navigate_to("main"))
+                            on_click=lambda e: asyncio.create_task(self.navigate_to("main"))
                         ),
                         ft.Text(
                             "Essay Generator",
@@ -736,11 +758,12 @@ class LetterScreen(BaseScreen):
     """Letter generation screen with ad integration."""
     
     def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager, 
-                 api_client: APIClient, generation_manager: GenerationManager):
+                 api_client: APIClient, generation_manager: GenerationManager, navigate_to: Callable):
         super().__init__(page, ad_manager)
         self.data_manager = data_manager
         self.api_client = api_client
         self.generation_manager = generation_manager
+        self.navigate_to = navigate_to
         self.is_generating = False
         
         self.recipient_input = ft.TextField(
@@ -900,7 +923,7 @@ The letter should be entirely in isiZulu and demonstrate proper understanding of
                         ft.IconButton(
                             ft.icons.ARROW_BACK,
                             icon_color=PRIMARY_COLOR,
-                            on_click=lambda e: asyncio.create_task(self.page.parent.navigate_to("main"))
+                            on_click=lambda e: asyncio.create_task(self.navigate_to("main"))
                         ),
                         ft.Text(
                             "Letter Generator",
@@ -957,9 +980,10 @@ The letter should be entirely in isiZulu and demonstrate proper understanding of
 class DictionaryScreen(BaseScreen):
     """Dictionary screen for Zulu words."""
     
-    def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager):
+    def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager, navigate_to: Callable):
         super().__init__(page, ad_manager)
         self.data_manager = data_manager
+        self.navigate_to = navigate_to
         
         self.search_input = ft.TextField(
             hint_text="Search for a Zulu word...",
@@ -1070,7 +1094,7 @@ class DictionaryScreen(BaseScreen):
                         ft.IconButton(
                             ft.icons.ARROW_BACK,
                             icon_color=PRIMARY_COLOR,
-                            on_click=lambda e: asyncio.create_task(self.page.parent.navigate_to("main"))
+                            on_click=lambda e: asyncio.create_task(self.navigate_to("main"))
                         ),
                         ft.Text(
                             "Zulu Dictionary",
@@ -1104,9 +1128,10 @@ class DictionaryScreen(BaseScreen):
 class ProverbsScreen(BaseScreen):
     """Screen to display Zulu proverbs."""
     
-    def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager):
+    def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager, navigate_to: Callable):
         super().__init__(page, ad_manager)
         self.data_manager = data_manager
+        self.navigate_to = navigate_to
         
         self.proverbs_column = ft.Column(
             scroll=ft.ScrollMode.AUTO
@@ -1164,7 +1189,7 @@ class ProverbsScreen(BaseScreen):
                         ft.IconButton(
                             ft.icons.ARROW_BACK,
                             icon_color=PRIMARY_COLOR,
-                            on_click=lambda e: asyncio.create_task(self.page.parent.navigate_to("main"))
+                            on_click=lambda e: asyncio.create_task(self.navigate_to("main"))
                         ),
                         ft.Text(
                             "Izaga Nezisho",
@@ -1197,10 +1222,12 @@ class ProverbsScreen(BaseScreen):
 class TranslationScreen(BaseScreen):
     """Translation screen with ad integration."""
     
-    def __init__(self, page: ft.Page, ad_manager: AdManager, api_client: APIClient, generation_manager: GenerationManager):
+    def __init__(self, page: ft.Page, ad_manager: AdManager, api_client: APIClient, 
+                 generation_manager: GenerationManager, navigate_to: Callable):
         super().__init__(page, ad_manager)
         self.api_client = api_client
         self.generation_manager = generation_manager
+        self.navigate_to = navigate_to
         self.is_translating = False
         
         self.source_input = ft.TextField(
@@ -1336,7 +1363,7 @@ Please provide only the English translation."""
                         ft.IconButton(
                             ft.icons.ARROW_BACK,
                             icon_color=PRIMARY_COLOR,
-                            on_click=lambda e: asyncio.create_task(self.page.parent.navigate_to("main"))
+                            on_click=lambda e: asyncio.create_task(self.navigate_to("main"))
                         ),
                         ft.Text(
                             "Translation",
@@ -1422,7 +1449,7 @@ class IsiZuluApp:
                 screen = MainScreen(
                     self.page, 
                     self.ad_manager, 
-                    lambda route: self.navigate_to(route),
+                    self.navigate_to,
                     self.generation_manager
                 )
             elif screen_name == "essay":
@@ -1431,7 +1458,8 @@ class IsiZuluApp:
                     self.ad_manager, 
                     self.data_manager, 
                     self.api_client, 
-                    self.generation_manager
+                    self.generation_manager,
+                    self.navigate_to
                 )
             elif screen_name == "letter":
                 screen = LetterScreen(
@@ -1439,37 +1467,40 @@ class IsiZuluApp:
                     self.ad_manager, 
                     self.data_manager, 
                     self.api_client, 
-                    self.generation_manager
+                    self.generation_manager,
+                    self.navigate_to
                 )
             elif screen_name == "dictionary":
                 screen = DictionaryScreen(
                     self.page, 
                     self.ad_manager, 
-                    self.data_manager
+                    self.data_manager,
+                    self.navigate_to
                 )
             elif screen_name == "proverbs":
                 screen = ProverbsScreen(
                     self.page, 
                     self.ad_manager, 
-                    self.data_manager
+                    self.data_manager,
+                    self.navigate_to
                 )
             elif screen_name == "translation":
                 screen = TranslationScreen(
                     self.page, 
                     self.ad_manager, 
                     self.api_client, 
-                    self.generation_manager
+                    self.generation_manager,
+                    self.navigate_to
                 )
             else:
                 logger.warning(f"Unknown screen: {screen_name}, defaulting to main")
                 await self.navigate_to("main")
                 return
             
-            # Store reference to current screen for back navigation
+            # Store reference to current screen
             self.current_screen = screen
-            screen.page.parent = self  # Allow screens to access app for navigation
             
-            self.page.add(screen)
+            self.page.add(screen.build())
             self.page.update()
             
         except Exception as e:
