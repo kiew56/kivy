@@ -9,11 +9,19 @@ authors = [
 dependencies = [
   "flet==0.27.6",
   "flet-ads==0.1.0",
+  "asyncio"
+  "platform"
+  "os"
+  "typing"
+  "Dict" 
+  "Optional"
+  "Callable"
+  "logging"
 ]
 
 [tool.flet]
 org = "com.kiew"
-product = "MyApp"
+product = "IsiZulu AI writer assistant"
 company = "IsiZulu AI writer assistant"
 copyright = "Copyright (C) 2025 by "
 
