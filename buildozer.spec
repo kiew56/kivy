@@ -4,7 +4,7 @@
 title = IsiZulu_AI_writer_Assistant
 
 # (str) Package name
-package.name = myapp
+package.name = IsiZulu AI writer assistant
 
 # (str) Package domain (needed for android/ios packaging)
 package.domain = org.SPACEtech
