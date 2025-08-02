@@ -1,7 +1,6 @@
 import flet as ft
 import json
 import requests
-import platform
 import os
 from typing import Dict, Optional, Callable
 import logging
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "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")
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
 
 # Color scheme
 PRIMARY_COLOR = "#1FAB78"
@@ -30,13 +29,10 @@ ACCENT_COLOR = "#E64C4C"
 
 class AdManager:
     """Centralized AdMob ad management with fallback if flet_ads is unavailable."""
-    
     def __init__(self, page: ft.Page):
         self.page = page
         self.generation_manager = None
-        
         if FLET_ADS_AVAILABLE:
-            # Platform-specific ad unit IDs (using test IDs)
             self.banner_id = (
                 "ca-app-pub-3940256099942544/6300978111"
                 if page.platform == ft.PagePlatform.ANDROID
@@ -56,7 +52,6 @@ class AdManager:
             self.current_interstitial = None
     
     def _create_ads(self):
-        """Create ad instances with error handling."""
         try:
             if FLET_ADS_AVAILABLE:
                 self.banner_ad = ads.BannerAd(
@@ -69,8 +64,6 @@ class AdManager:
                     on_impression=lambda e: logger.info("Banner ad impression")
                 )
                 self._create_new_interstitial()
-            else:
-                logger.warning("Skipping ad creation: flet_ads not available")
         except Exception as e:
             logger.error(f"Error creating ads: {e}")
             self.banner_ad = None
@@ -78,7 +71,6 @@ class AdManager:
             self.show_error_snackbar("Failed to initialize ads")
     
     def _create_new_interstitial(self):
-        """Create a new interstitial ad instance."""
         try:
             if FLET_ADS_AVAILABLE:
                 self.current_interstitial = ads.InterstitialAd(
@@ -92,15 +84,12 @@ class AdManager:
                 )
                 if self.current_interstitial and self.current_interstitial not in self.page.overlay:
                     self.page.overlay.append(self.current_interstitial)
-            else:
-                logger.warning("Skipping interstitial creation: flet_ads not available")
         except Exception as e:
             logger.error(f"Error creating interstitial ad: {e}")
             self.current_interstitial = None
             self.show_error_snackbar("Failed to initialize interstitial ad")
     
     def _on_interstitial_close(self, e):
-        """Handle interstitial ad close."""
         logger.info("Interstitial ad closed")
         if hasattr(e.control, '_is_reward_ad') and e.control._is_reward_ad:
             self._grant_reward()
@@ -110,7 +99,6 @@ class AdManager:
         self.page.update()
     
     def _grant_reward(self):
-        """Grant reward after watching interstitial ad."""
         logger.info("User earned reward from interstitial ad")
         if self.generation_manager:
             self.generation_manager.grant_free_generations(5)
@@ -123,7 +111,6 @@ class AdManager:
         self.page.update()
     
     def show_interstitial(self):
-        """Show interstitial ad."""
         if FLET_ADS_AVAILABLE and self.current_interstitial:
             try:
                 self.current_interstitial._is_reward_ad = False
@@ -131,11 +118,8 @@ class AdManager:
             except Exception as e:
                 logger.error(f"Failed to show interstitial ad: {e}")
                 self.show_error_snackbar("Failed to show ad")
-        else:
-            logger.info("No interstitial ad available")
     
     def show_reward_interstitial(self):
-        """Show interstitial ad as reward ad."""
         if FLET_ADS_AVAILABLE and self.current_interstitial:
             try:
                 self.current_interstitial._is_reward_ad = True
@@ -147,7 +131,6 @@ class AdManager:
             self._simulate_reward()
     
     def _simulate_reward(self):
-        """Simulate reward for testing."""
         logger.info("Simulating reward (testing mode)")
         if self.generation_manager:
             self.generation_manager.grant_free_generations(5)
@@ -160,7 +143,6 @@ class AdManager:
         self.page.update()
     
     def show_error_snackbar(self, message: str):
-        """Show error snackbar."""
         self.page.snack_bar = ft.SnackBar(
             content=ft.Text(f"Error: {message}", color=ft.colors.WHITE),
             bgcolor=ft.colors.RED,
@@ -170,7 +152,6 @@ class AdManager:
         self.page.update()
     
     def create_banner_container(self) -> ft.Container:
-        """Create a container with banner ad or placeholder."""
         if FLET_ADS_AVAILABLE and self.banner_ad:
             return ft.Container(
                 content=self.banner_ad,
@@ -189,8 +170,6 @@ class AdManager:
         )
 
 class GenerationManager:
-    """Enhanced generation management with reward system."""
-    
     def __init__(self):
         self.generation_count = 0
         self.free_generations = 2
@@ -215,8 +194,6 @@ class GenerationManager:
         self.free_generations = 2
 
 class DataManager:
-    """Centralized data management with caching and validation."""
-    
     def __init__(self):
         self._proverbs: Optional[Dict[str, str]] = None
         self._dictionary: Optional[Dict[str, str]] = None
@@ -229,7 +206,6 @@ class DataManager:
         }
     
     def load_json_file(self, filename: str, description: str) -> Dict[str, str]:
-        """Load and validate JSON file with error handling."""
         try:
             with open(f"assets/{filename}", 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -287,8 +263,6 @@ class DataManager:
         return self._dictionary
 
 class APIClient:
-    """Centralized API client with error handling."""
-    
     def __init__(self, api_key: str):
         if not api_key:
             raise ValueError("API key is required")
@@ -329,8 +303,6 @@ class APIClient:
             raise Exception(f"API error: {str(e)}")
 
 class BaseScreen:
-    """Base class for all screens with common functionality."""
-    
     def __init__(self, page: ft.Page, ad_manager: AdManager):
         self.page = page
         self.ad_manager = ad_manager
@@ -338,8 +310,8 @@ class BaseScreen:
     def show_error_dialog(self, title: str, message: str):
         try:
             dialog = ft.AlertDialog(
-                title=ft.Text(title, font_family="NotoSans" if self.page.fonts else None),
-                content=ft.Text(message, font_family="NotoSans" if self.page.fonts else None),
+                title=ft.Text(title),
+                content=ft.Text(message),
                 actions=[
                     ft.TextButton(
                         "OK",
@@ -369,22 +341,21 @@ class BaseScreen:
         remaining = generation_manager.get_remaining_generations()
         try:
             dialog = ft.AlertDialog(
-                title=ft.Text("Watch Ad to Continue", font_family="NotoSans" if self.page.fonts else None, color=PRIMARY_COLOR),
+                title=ft.Text("Watch Ad to Continue", color=PRIMARY_COLOR),
                 content=ft.Column([
-                    ft.Text(f"You have {remaining} free generations remaining.", font_family="NotoSans" if self.page.fonts else None),
+                    ft.Text(f"You have {remaining} free generations remaining."),
                     ft.Container(height=10),
                     ft.Container(
                         content=ft.Column([
                             ft.Row([
                                 ft.Icon(ft.icons.PLAY_CIRCLE_FILLED, color=ft.colors.GREEN, size=40),
                                 ft.Column([
-                                    ft.Text("Watch a short ad", font_family="NotoSans" if self.page.fonts else None, size=16, weight=ft.FontWeight.BOLD),
-                                    ft.Text("Get 5 more generations!", font_family="NotoSans" if self.page.fonts else None, size=14, color=ft.colors.GREEN)
+                                    ft.Text("Watch a short ad", size=16, weight=ft.FontWeight.BOLD),
+                                    ft.Text("Get 5 more generations!", size=14, color=ft.colors.GREEN)
                                 ], spacing=0)
                             ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
                             ft.Container(height=10),
                             ft.Text("🎁 Reward: 5 Free Generations",
-                                   font_family="NotoSans" if self.page.fonts else None,
                                    size=14,
                                    color=ft.colors.ORANGE_600,
                                    text_align=ft.TextAlign.CENTER)
@@ -435,8 +406,6 @@ class BaseScreen:
         self.ad_manager.show_reward_interstitial()
 
 class MainScreen(BaseScreen):
-    """Main navigation screen with generation counter."""
-    
     def __init__(self, page: ft.Page, ad_manager: AdManager, navigate_to: Callable, generation_manager: GenerationManager):
         super().__init__(page, ad_manager)
         self.navigate_to = navigate_to
@@ -451,7 +420,6 @@ class MainScreen(BaseScreen):
                         ft.Container(height=10),
                         ft.Text(
                             "isiZulu AI Writer",
-                            font_family="NotoSans" if self.page.fonts else None,
                             size=28,
                             color=PRIMARY_COLOR,
                             text_align=ft.TextAlign.CENTER,
@@ -459,7 +427,6 @@ class MainScreen(BaseScreen):
                         ),
                         ft.Text(
                             "Create beautiful content in isiZulu",
-                            font_family="NotoSans" if self.page.fonts else None,
                             size=16,
                             color=ft.colors.GREY_600,
                             text_align=ft.TextAlign.CENTER
@@ -471,7 +438,6 @@ class MainScreen(BaseScreen):
                                     ft.Icon(ft.icons.BOLT, color=ft.colors.ORANGE, size=24),
                                     ft.Text(
                                         f"Free Generations: {self.generation_manager.get_remaining_generations()}",
-                                        font_family="NotoSans" if self.page.fonts else None,
                                         size=16,
                                         color=ft.colors.BLACK87,
                                         weight=ft.FontWeight.BOLD
@@ -509,7 +475,7 @@ class MainScreen(BaseScreen):
         except Exception as e:
             logger.error(f"Error building MainScreen: {e}")
             return ft.Container(
-                content=ft.Text("Error: Unable to load main screen", color=ft.colors.RED),
+                content=ft.Text(f"Error: Unable to load main screen: {str(e)}", color=ft.colors.RED),
                 bgcolor=SECONDARY_COLOR,
                 padding=20,
                 expand=True
@@ -526,7 +492,7 @@ class MainScreen(BaseScreen):
         return [
             ft.ElevatedButton(
                 content=ft.Row(
-                    [ft.Icon(icon), ft.Text(text, font_family="NotoSans" if self.page.fonts else None)],
+                    [ft.Icon(icon), ft.Text(text)],
                     alignment=ft.MainAxisAlignment.CENTER,
                     spacing=10
                 ),
@@ -534,14 +500,15 @@ class MainScreen(BaseScreen):
                 color=ft.colors.WHITE,
                 width=250,
                 height=50,
-                on_click=lambda e, route=route: self.page.run_task(self.navigate_to, route)
+                on_click=lambda e, route=route: (
+                    logger.info(f"Button clicked for route: {route}"),
+                    self.navigate_to(route)
+                )
             )
             for text, icon, route in buttons
         ]
 
 class EssayScreen(BaseScreen):
-    """Essay generation screen with ad integration."""
-    
     def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager,
                  api_client: APIClient, generation_manager: GenerationManager, navigate_to: Callable):
         super().__init__(page, ad_manager)
@@ -550,17 +517,14 @@ class EssayScreen(BaseScreen):
         self.generation_manager = generation_manager
         self.navigate_to = navigate_to
         self.is_generating = False
-        
         self.topic_input = ft.TextField(
             hint_text="Enter essay topic (e.g., 'Ubuntu philosophy')",
-            font_family="NotoSans" if page.fonts else None,
             text_size=16,
             bgcolor=ft.colors.WHITE,
             border_color=PRIMARY_COLOR
         )
         self.length_input = ft.TextField(
             hint_text="Enter word count (e.g., 500)",
-            font_family="NotoSans" if page.fonts else None,
             text_size=16,
             bgcolor=ft.colors.WHITE,
             border_color=PRIMARY_COLOR,
@@ -568,14 +532,13 @@ class EssayScreen(BaseScreen):
         )
         self.result_text = ft.Text(
             "Your generated essay will appear here...",
-            font_family="NotoSans" if page.fonts else None,
             size=14,
             color=ft.colors.GREY_600,
             selectable=True
         )
         self.generate_button = ft.ElevatedButton(
             content=ft.Row(
-                [ft.Icon(ft.icons.CREATE), ft.Text("Generate Essay", font_family="NotoSans" if page.fonts else None)],
+                [ft.Icon(ft.icons.CREATE), ft.Text("Generate Essay")],
                 alignment=ft.MainAxisAlignment.CENTER
             ),
             bgcolor=ACCENT_COLOR,
@@ -660,7 +623,7 @@ Please write the essay entirely in isiZulu, ensuring it flows naturally and educ
         try:
             if generating:
                 self.generate_button.content = ft.Row(
-                    [ft.ProgressRing(width=16, height=16), ft.Text("Generating...", font_family="NotoSans" if self.page.fonts else None)],
+                    [ft.ProgressRing(width=16, height=16), ft.Text("Generating...")],
                     alignment=ft.MainAxisAlignment.CENTER
                 )
                 self.generate_button.disabled = True
@@ -668,14 +631,14 @@ Please write the essay entirely in isiZulu, ensuring it flows naturally and educ
                 self.result_text.color = ft.colors.BLUE
             else:
                 self.generate_button.content = ft.Row(
-                    [ft.Icon(ft.icons.CREATE), ft.Text("Generate Essay", font_family="NotoSans" if self.page.fonts else None)],
+                    [ft.Icon(ft.icons.CREATE), ft.Text("Generate Essay")],
                     alignment=ft.MainAxisAlignment.CENTER
                 )
                 self.generate_button.disabled = False
             self.page.update()
         except Exception as e:
             logger.error(f"Error updating UI: {e}")
-            self.result_text.value = "Error: Unable to update UI"
+            self.result_text.value = f"Error: Unable to update UI: {str(e)}"
             self.result_text.color = ft.colors.RED
             self.page.update()
     
@@ -690,11 +653,10 @@ Please write the essay entirely in isiZulu, ensuring it flows naturally and educ
                             ft.IconButton(
                                 ft.icons.ARROW_BACK,
                                 icon_color=PRIMARY_COLOR,
-                                on_click=lambda e: self.page.run_task(self.navigate_to, "main")
+                                on_click=lambda e: self.navigate_to("main")
                             ),
                             ft.Text(
                                 "Essay Generator",
-                                font_family="NotoSans" if self.page.fonts else None,
                                 size=24,
                                 color=PRIMARY_COLOR,
                                 weight=ft.FontWeight.BOLD
@@ -705,7 +667,6 @@ Please write the essay entirely in isiZulu, ensuring it flows naturally and educ
                                 ft.Icon(ft.icons.BOLT, color=ft.colors.ORANGE, size=16),
                                 ft.Text(
                                     f"Remaining: {self.generation_manager.get_remaining_generations()} generations",
-                                    font_family="NotoSans" if self.page.fonts else None,
                                     size=12,
                                     color=ft.colors.GREY_600
                                 )
@@ -721,7 +682,6 @@ Please write the essay entirely in isiZulu, ensuring it flows naturally and educ
                             content=ft.Column([
                                 ft.Text(
                                     "Generated Essay:",
-                                    font_family="NotoSans" if self.page.fonts else None,
                                     size=16,
                                     weight=ft.FontWeight.BOLD,
                                     color=PRIMARY_COLOR
@@ -745,15 +705,13 @@ Please write the essay entirely in isiZulu, ensuring it flows naturally and educ
         except Exception as e:
             logger.error(f"Error building EssayScreen: {e}")
             return ft.Container(
-                content=ft.Text("Error: Unable to load essay screen", color=ft.colors.RED),
+                content=ft.Text(f"Error: Unable to load essay screen: {str(e)}", color=ft.colors.RED),
                 bgcolor=SECONDARY_COLOR,
                 padding=20,
                 expand=True
             )
 
 class LetterScreen(BaseScreen):
-    """Letter generation screen with ad integration."""
-    
     def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager,
                  api_client: APIClient, generation_manager: GenerationManager, navigate_to: Callable):
         super().__init__(page, ad_manager)
@@ -762,17 +720,14 @@ class LetterScreen(BaseScreen):
         self.generation_manager = generation_manager
         self.navigate_to = navigate_to
         self.is_generating = False
-        
         self.recipient_input = ft.TextField(
             hint_text="Enter recipient name",
-            font_family="NotoSans" if page.fonts else None,
             text_size=16,
             bgcolor=ft.colors.WHITE,
             border_color=PRIMARY_COLOR
         )
         self.purpose_input = ft.TextField(
             hint_text="Enter letter purpose (e.g., 'wedding invitation', 'condolences')",
-            font_family="NotoSans" if page.fonts else None,
             text_size=16,
             bgcolor=ft.colors.WHITE,
             border_color=PRIMARY_COLOR,
@@ -792,14 +747,13 @@ class LetterScreen(BaseScreen):
         )
         self.result_text = ft.Text(
             "Your generated letter will appear here...",
-            font_family="NotoSans" if page.fonts else None,
             size=14,
             color=ft.colors.GREY_600,
             selectable=True
         )
         self.generate_button = ft.ElevatedButton(
             content=ft.Row(
-                [ft.Icon(ft.icons.MAIL), ft.Text("Generate Letter", font_family="NotoSans" if page.fonts else None)],
+                [ft.Icon(ft.icons.MAIL), ft.Text("Generate Letter")],
                 alignment=ft.MainAxisAlignment.CENTER
             ),
             bgcolor=ACCENT_COLOR,
@@ -873,7 +827,7 @@ The letter should be entirely in isiZulu and demonstrate proper understanding of
         try:
             if generating:
                 self.generate_button.content = ft.Row(
-                    [ft.ProgressRing(width=16, height=16), ft.Text("Generating...", font_family="NotoSans" if self.page.fonts else None)],
+                    [ft.ProgressRing(width=16, height=16), ft.Text("Generating...")],
                     alignment=ft.MainAxisAlignment.CENTER
                 )
                 self.generate_button.disabled = True
@@ -881,14 +835,14 @@ The letter should be entirely in isiZulu and demonstrate proper understanding of
                 self.result_text.color = ft.colors.BLUE
             else:
                 self.generate_button.content = ft.Row(
-                    [ft.Icon(ft.icons.MAIL), ft.Text("Generate Letter", font_family="NotoSans" if self.page.fonts else None)],
+                    [ft.Icon(ft.icons.MAIL), ft.Text("Generate Letter")],
                     alignment=ft.MainAxisAlignment.CENTER
                 )
                 self.generate_button.disabled = False
             self.page.update()
         except Exception as e:
             logger.error(f"Error updating UI: {e}")
-            self.result_text.value = "Error: Unable to update UI"
+            self.result_text.value = f"Error: Unable to update UI: {str(e)}"
             self.result_text.color = ft.colors.RED
             self.page.update()
     
@@ -903,11 +857,10 @@ The letter should be entirely in isiZulu and demonstrate proper understanding of
                             ft.IconButton(
                                 ft.icons.ARROW_BACK,
                                 icon_color=PRIMARY_COLOR,
-                                on_click=lambda e: self.page.run_task(self.navigate_to, "main")
+                                on_click=lambda e: self.navigate_to("main")
                             ),
                             ft.Text(
                                 "Letter Generator",
-                                font_family="NotoSans" if self.page.fonts else None,
                                 size=24,
                                 color=PRIMARY_COLOR,
                                 weight=ft.FontWeight.BOLD
@@ -918,7 +871,6 @@ The letter should be entirely in isiZulu and demonstrate proper understanding of
                                 ft.Icon(ft.icons.BOLT, color=ft.colors.ORANGE, size=16),
                                 ft.Text(
                                     f"Remaining: {self.generation_manager.get_remaining_generations()} generations",
-                                    font_family="NotoSans" if self.page.fonts else None,
                                     size=12,
                                     color=ft.colors.GREY_600
                                 )
@@ -935,7 +887,6 @@ The letter should be entirely in isiZulu and demonstrate proper understanding of
                             content=ft.Column([
                                 ft.Text(
                                     "Generated Letter:",
-                                    font_family="NotoSans" if self.page.fonts else None,
                                     size=16,
                                     weight=ft.FontWeight.BOLD,
                                     color=PRIMARY_COLOR
@@ -959,22 +910,19 @@ The letter should be entirely in isiZulu and demonstrate proper understanding of
         except Exception as e:
             logger.error(f"Error building LetterScreen: {e}")
             return ft.Container(
-                content=ft.Text("Error: Unable to load letter screen", color=ft.colors.RED),
+                content=ft.Text(f"Error: Unable to load letter screen: {str(e)}", color=ft.colors.RED),
                 bgcolor=SECONDARY_COLOR,
                 padding=20,
                 expand=True
             )
 
 class DictionaryScreen(BaseScreen):
-    """Dictionary screen for Zulu words."""
-    
     def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager, navigate_to: Callable):
         super().__init__(page, ad_manager)
         self.data_manager = data_manager
         self.navigate_to = navigate_to
         self.search_input = ft.TextField(
             hint_text="Search for a Zulu word...",
-            font_family="NotoSans" if page.fonts else None,
             text_size=16,
             bgcolor=ft.colors.WHITE,
             border_color=PRIMARY_COLOR,
@@ -984,7 +932,6 @@ class DictionaryScreen(BaseScreen):
             [
                 ft.Text(
                     "Enter a word to search the dictionary",
-                    font_family="NotoSans" if page.fonts else None,
                     size=16,
                     color=ft.colors.GREY_600,
                     text_align=ft.TextAlign.CENTER
@@ -1004,7 +951,6 @@ class DictionaryScreen(BaseScreen):
                 self.results_column.controls.append(
                     ft.Text(
                         "Enter a word to search the dictionary",
-                        font_family="NotoSans" if self.page.fonts else None,
                         size=16,
                         color=ft.colors.GREY_600,
                         text_align=ft.TextAlign.CENTER
@@ -1020,7 +966,6 @@ class DictionaryScreen(BaseScreen):
                     self.results_column.controls.append(
                         ft.Text(
                             f"Found {len(matches)} result(s):",
-                            font_family="NotoSans" if self.page.fonts else None,
                             size=16,
                             color=PRIMARY_COLOR,
                             weight=ft.FontWeight.BOLD
@@ -1032,14 +977,12 @@ class DictionaryScreen(BaseScreen):
                                 content=ft.Column([
                                     ft.Text(
                                         word,
-                                        font_family="NotoSans" if self.page.fonts else None,
                                         size=18,
                                         color=ACCENT_COLOR,
                                         weight=ft.FontWeight.BOLD
                                     ),
                                     ft.Text(
                                         definition,
-                                        font_family="NotoSans" if self.page.fonts else None,
                                         size=14,
                                         color=ft.colors.BLACK
                                     )
@@ -1055,7 +998,6 @@ class DictionaryScreen(BaseScreen):
                     self.results_column.controls.append(
                         ft.Text(
                             f"No results found for '{search_term}'",
-                            font_family="NotoSans" if self.page.fonts else None,
                             size=16,
                             color=ft.colors.RED_400,
                             text_align=ft.TextAlign.CENTER
@@ -1066,8 +1008,7 @@ class DictionaryScreen(BaseScreen):
             logger.error(f"Error searching dictionary: {e}")
             self.results_column.controls = [
                 ft.Text(
-                    "Error: Unable to search dictionary",
-                    font_family="NotoSans" if self.page.fonts else None,
+                    f"Error: Unable to search dictionary: {str(e)}",
                     color=ft.colors.RED,
                     text_align=ft.TextAlign.CENTER
                 )
@@ -1085,11 +1026,10 @@ class DictionaryScreen(BaseScreen):
                             ft.IconButton(
                                 ft.icons.ARROW_BACK,
                                 icon_color=PRIMARY_COLOR,
-                                on_click=lambda e: self.page.run_task(self.navigate_to, "main")
+                                on_click=lambda e: self.navigate_to("main")
                             ),
                             ft.Text(
                                 "Zulu Dictionary",
-                                font_family="NotoSans" if self.page.fonts else None,
                                 size=24,
                                 color=PRIMARY_COLOR,
                                 weight=ft.FontWeight.BOLD
@@ -1097,7 +1037,6 @@ class DictionaryScreen(BaseScreen):
                         ], alignment=ft.MainAxisAlignment.START),
                         ft.Text(
                             "Search for Zulu words and their meanings",
-                            font_family="NotoSans" if self.page.fonts else None,
                             size=16,
                             color=ft.colors.GREY_600,
                             text_align=ft.TextAlign.CENTER
@@ -1118,15 +1057,13 @@ class DictionaryScreen(BaseScreen):
         except Exception as e:
             logger.error(f"Error building DictionaryScreen: {e}")
             return ft.Container(
-                content=ft.Text("Error: Unable to load dictionary screen", color=ft.colors.RED),
+                content=ft.Text(f"Error: Unable to load dictionary screen: {str(e)}", color=ft.colors.RED),
                 bgcolor=SECONDARY_COLOR,
                 padding=20,
                 expand=True
             )
 
 class ProverbsScreen(BaseScreen):
-    """Screen to display Zulu proverbs."""
-    
     def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager, navigate_to: Callable):
         super().__init__(page, ad_manager)
         self.data_manager = data_manager
@@ -1141,7 +1078,6 @@ class ProverbsScreen(BaseScreen):
                 self.proverbs_column.controls.append(
                     ft.Text(
                         "No proverbs available. Please check the data file.",
-                        font_family="NotoSans" if self.page.fonts else None,
                         color=ft.colors.RED_400,
                         text_align=ft.TextAlign.CENTER
                     )
@@ -1153,14 +1089,12 @@ class ProverbsScreen(BaseScreen):
                             content=ft.Column([
                                 ft.Text(
                                     proverb,
-                                    font_family="NotoSans" if self.page.fonts else None,
                                     size=18,
                                     color=ACCENT_COLOR,
                                     weight=ft.FontWeight.BOLD
                                 ),
                                 ft.Text(
                                     meaning,
-                                    font_family="NotoSans" if self.page.fonts else None,
                                     size=14,
                                     color=ft.colors.BLACK
                                 )
@@ -1176,8 +1110,7 @@ class ProverbsScreen(BaseScreen):
             logger.error(f"Error loading proverbs: {e}")
             self.proverbs_column.controls = [
                 ft.Text(
-                    "Error: Unable to load proverbs",
-                    font_family="NotoSans" if self.page.fonts else None,
+                    f"Error: Unable to load proverbs: {str(e)}",
                     color=ft.colors.RED,
                     text_align=ft.TextAlign.CENTER
                 )
@@ -1194,11 +1127,10 @@ class ProverbsScreen(BaseScreen):
                             ft.IconButton(
                                 ft.icons.ARROW_BACK,
                                 icon_color=PRIMARY_COLOR,
-                                on_click=lambda e: self.page.run_task(self.navigate_to, "main")
+                                on_click=lambda e: self.navigate_to("main")
                             ),
                             ft.Text(
                                 "Izaga Nezisho",
-                                font_family="NotoSans" if self.page.fonts else None,
                                 size=24,
                                 color=PRIMARY_COLOR,
                                 weight=ft.FontWeight.BOLD
@@ -1206,7 +1138,6 @@ class ProverbsScreen(BaseScreen):
                         ], alignment=ft.MainAxisAlignment.START),
                         ft.Text(
                             "Zulu Proverbs and Sayings",
-                            font_family="NotoSans" if self.page.fonts else None,
                             size=16,
                             color=ft.colors.GREY_600,
                             text_align=ft.TextAlign.CENTER
@@ -1226,15 +1157,13 @@ class ProverbsScreen(BaseScreen):
         except Exception as e:
             logger.error(f"Error building ProverbsScreen: {e}")
             return ft.Container(
-                content=ft.Text("Error: Unable to load proverbs screen", color=ft.colors.RED),
+                content=ft.Text(f"Error: Unable to load proverbs screen: {str(e)}", color=ft.colors.RED),
                 bgcolor=SECONDARY_COLOR,
                 padding=20,
                 expand=True
             )
 
 class TranslationScreen(BaseScreen):
-    """Translation screen with ad integration."""
-    
     def __init__(self, page: ft.Page, ad_manager: AdManager, api_client: APIClient,
                  generation_manager: GenerationManager, navigate_to: Callable):
         super().__init__(page, ad_manager)
@@ -1242,10 +1171,8 @@ class TranslationScreen(BaseScreen):
         self.generation_manager = generation_manager
         self.navigate_to = navigate_to
         self.is_translating = False
-        
         self.source_input = ft.TextField(
             hint_text="Enter text to translate...",
-            font_family="NotoSans" if page.fonts else None,
             text_size=16,
             bgcolor=ft.colors.WHITE,
             border_color=PRIMARY_COLOR,
@@ -1263,14 +1190,13 @@ class TranslationScreen(BaseScreen):
         )
         self.result_text = ft.Text(
             "Translation will appear here...",
-            font_family="NotoSans" if page.fonts else None,
             size=14,
             color=ft.colors.GREY_600,
             selectable=True
         )
         self.translate_button = ft.ElevatedButton(
             content=ft.Row(
-                [ft.Icon(ft.icons.TRANSLATE), ft.Text("Translate", font_family="NotoSans" if page.fonts else None)],
+                [ft.Icon(ft.icons.TRANSLATE), ft.Text("Translate")],
                 alignment=ft.MainAxisAlignment.CENTER
             ),
             bgcolor=ACCENT_COLOR,
@@ -1333,7 +1259,7 @@ Please provide only the English translation."""
         try:
             if translating:
                 self.translate_button.content = ft.Row(
-                    [ft.ProgressRing(width=16, height=16), ft.Text("Translating...", font_family="NotoSans" if self.page.fonts else None)],
+                    [ft.ProgressRing(width=16, height=16), ft.Text("Translating...")],
                     alignment=ft.MainAxisAlignment.CENTER
                 )
                 self.translate_button.disabled = True
@@ -1341,14 +1267,14 @@ Please provide only the English translation."""
                 self.result_text.color = ft.colors.BLUE
             else:
                 self.translate_button.content = ft.Row(
-                    [ft.Icon(ft.icons.TRANSLATE), ft.Text("Translate", font_family="NotoSans" if self.page.fonts else None)],
+                    [ft.Icon(ft.icons.TRANSLATE), ft.Text("Translate")],
                     alignment=ft.MainAxisAlignment.CENTER
                 )
                 self.translate_button.disabled = False
             self.page.update()
         except Exception as e:
             logger.error(f"Error updating UI: {e}")
-            self.result_text.value = "Error: Unable to update UI"
+            self.result_text.value = f"Error: Unable to update UI: {str(e)}"
             self.result_text.color = ft.colors.RED
             self.page.update()
     
@@ -1363,11 +1289,10 @@ Please provide only the English translation."""
                             ft.IconButton(
                                 ft.icons.ARROW_BACK,
                                 icon_color=PRIMARY_COLOR,
-                                on_click=lambda e: self.page.run_task(self.navigate_to, "main")
+                                on_click=lambda e: self.navigate_to("main")
                             ),
                             ft.Text(
                                 "Translation",
-                                font_family="NotoSans" if self.page.fonts else None,
                                 size=24,
                                 color=PRIMARY_COLOR,
                                 weight=ft.FontWeight.BOLD
@@ -1378,7 +1303,6 @@ Please provide only the English translation."""
                                 ft.Icon(ft.icons.BOLT, color=ft.colors.ORANGE, size=16),
                                 ft.Text(
                                     f"Remaining: {self.generation_manager.get_remaining_generations()} generations",
-                                    font_family="NotoSans" if self.page.fonts else None,
                                     size=12,
                                     color=ft.colors.GREY_600
                                 )
@@ -1394,7 +1318,6 @@ Please provide only the English translation."""
                             content=ft.Column([
                                 ft.Text(
                                     "Translation:",
-                                    font_family="NotoSans" if self.page.fonts else None,
                                     size=16,
                                     weight=ft.FontWeight.BOLD,
                                     color=PRIMARY_COLOR
@@ -1418,15 +1341,13 @@ Please provide only the English translation."""
         except Exception as e:
             logger.error(f"Error building TranslationScreen: {e}")
             return ft.Container(
-                content=ft.Text("Error: Unable to load translation screen", color=ft.colors.RED),
+                content=ft.Text(f"Error: Unable to load translation screen: {str(e)}", color=ft.colors.RED),
                 bgcolor=SECONDARY_COLOR,
                 padding=20,
                 expand=True
             )
 
 class IsiZuluApp:
-    """Main application controller with proper AdMob integration."""
-    
     def __init__(self, page: ft.Page):
         self.page = page
         self.data_manager = DataManager()
@@ -1444,11 +1365,12 @@ class IsiZuluApp:
                 logger.error(f"Invalid API key: {e}")
                 self.api_client = None
     
-    async def navigate_to(self, screen_name: str):
+    def navigate_to(self, screen_name: str):
         self.page.controls.clear()
         try:
-            logger.info(f"Navigating to {screen_name}")
+            logger.info(f"Attempting navigation to {screen_name}")
             if screen_name == "main":
+                logger.info("Initializing MainScreen")
                 screen = MainScreen(
                     self.page,
                     self.ad_manager,
@@ -1456,6 +1378,7 @@ class IsiZuluApp:
                     self.generation_manager
                 )
             elif screen_name == "essay":
+                logger.info("Initializing EssayScreen")
                 screen = EssayScreen(
                     self.page,
                     self.ad_manager,
@@ -1465,6 +1388,7 @@ class IsiZuluApp:
                     self.navigate_to
                 )
             elif screen_name == "letter":
+                logger.info("Initializing LetterScreen")
                 screen = LetterScreen(
                     self.page,
                     self.ad_manager,
@@ -1474,6 +1398,7 @@ class IsiZuluApp:
                     self.navigate_to
                 )
             elif screen_name == "dictionary":
+                logger.info("Initializing DictionaryScreen")
                 screen = DictionaryScreen(
                     self.page,
                     self.ad_manager,
@@ -1481,6 +1406,7 @@ class IsiZuluApp:
                     self.navigate_to
                 )
             elif screen_name == "proverbs":
+                logger.info("Initializing ProverbsScreen")
                 screen = ProverbsScreen(
                     self.page,
                     self.ad_manager,
@@ -1488,6 +1414,7 @@ class IsiZuluApp:
                     self.navigate_to
                 )
             elif screen_name == "translation":
+                logger.info("Initializing TranslationScreen")
                 screen = TranslationScreen(
                     self.page,
                     self.ad_manager,
@@ -1497,17 +1424,22 @@ class IsiZuluApp:
                 )
             else:
                 logger.warning(f"Unknown screen: {screen_name}, defaulting to main")
-                await self.navigate_to("main")
+                self.navigate_to("main")
                 return
+            logger.info(f"Building screen {screen_name}")
             self.current_screen = screen
-            self.page.add(screen.build())
+            screen_content = screen.build()
+            logger.info(f"Adding screen {screen_name} to page")
+            self.page.add(screen_content)
+            logger.info(f"Updating page for {screen_name}")
             self.page.update()
+            logger.info(f"Successfully navigated to {screen_name}")
         except Exception as e:
-            logger.error(f"Navigation error to {screen_name}: {e}")
+            logger.error(f"Navigation error to {screen_name}: {str(e)}")
             self.page.controls.clear()
             self.page.add(
                 ft.Container(
-                    content=ft.Text(f"Error: Failed to load {screen_name} screen", color=ft.colors.RED),
+                    content=ft.Text(f"Error: Failed to load {screen_name} screen: {str(e)}", color=ft.colors.RED),
                     bgcolor=SECONDARY_COLOR,
                     padding=20,
                     expand=True
@@ -1515,32 +1447,26 @@ class IsiZuluApp:
             )
             self.page.update()
             if screen_name != "main":
-                await self.navigate_to("main")
+                logger.info("Falling back to main screen due to error")
+                self.navigate_to("main")
 
 def main(page: ft.Page):
-    """Main application entry point with proper AdMob setup."""
     try:
         logger.info("Starting main function")
         page.title = "isiZulu AI Writer"
         page.bgcolor = SECONDARY_COLOR
         page.theme_mode = ft.ThemeMode.LIGHT
         page.vertical_alignment = ft.MainAxisAlignment.START
-        try:
-            page.fonts = {
-                "NotoSans": "assets/fonts/NotoSans-Regular.ttf"
-            }
-            logger.info("Custom font loaded")
-        except Exception as e:
-            logger.warning(f"Failed to load custom font: {e}")
-            page.fonts = None
+        page.fonts = None  # Disable fonts for testing
+        logger.info("Fonts disabled for testing")
         app = IsiZuluApp(page)
         logger.info("App initialized")
-        page.run_task(app.navigate_to, "main")
+        app.navigate_to("main")
     except Exception as e:
         logger.error(f"Error in main function: {e}")
         page.add(
             ft.Container(
-                content=ft.Text("Error: Application failed to start", color=ft.colors.RED),
+                content=ft.Text(f"Error: Application failed to start: {str(e)}", color=ft.colors.RED),
                 bgcolor=SECONDARY_COLOR,
                 padding=20,
                 expand=True
