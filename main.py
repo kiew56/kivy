@@ -1,33 +1,5 @@
-
 import flet as ft
 import flet_ads as ads
-
-# AdMob: Initialize ads
-banner_ad = ft.Banner(
-    ad_unit_id="ca-app-pub-3940256099942544/6300978111",  # Replace with your real Ad Unit ID
-    width=320,
-    height=50
-)
-
-interstitial_ad = ft.InterstitialAd(
-    ad_unit_id="ca-app-pub-3940256099942544/1033173712",  # Replace with your real Ad Unit ID
-    on_dismissed=lambda e: print("Interstitial closed"),
-)
-
-rewarded_ad = ft.RewardedAd(
-    ad_unit_id="ca-app-pub-3940256099942544/5224354917",  # Replace with your real Ad Unit ID
-    on_user_earned_reward=lambda e: print("User earned reward!"),
-)
-
-def show_interstitial_ad(page):
-    interstitial_ad.load()
-    interstitial_ad.show()
-
-def show_rewarded_ad(page):
-    rewarded_ad.load()
-    rewarded_ad.show()
-
-import flet as ft
 import json
 import requests
 import asyncio
@@ -41,13 +13,177 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration - Use environment variables for security
-OPENROUTER_API_KEY = os.getenv("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")
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "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")
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Color scheme
 PRIMARY_COLOR = "#1FAB78"
 SECONDARY_COLOR = "#F2F2F2"
 ACCENT_COLOR = "#E64C4C"
+
+class AdManager:
+    """Centralized AdMob ad management with only supported ad types (Banner + Interstitial)."""
+    
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self.generation_manager = None  # Will be set by app
+        
+        # Platform-specific ad unit IDs (using test IDs for safety)
+        self.banner_id = (
+            "ca-app-pub-3940256099942544/6300978111"  # Android test banner
+            if page.platform == ft.PagePlatform.ANDROID
+            else "ca-app-pub-3940256099942544/2934735716"  # iOS test banner
+        )
+        
+        self.interstitial_id = (
+            "ca-app-pub-3940256099942544/1033173712"  # Android test interstitial
+            if page.platform == ft.PagePlatform.ANDROID
+            else "ca-app-pub-3940256099942544/4411468910"  # iOS test interstitial
+        )
+        
+        # Initialize ads
+        self.current_interstitial = None
+        self.banner_ad = None
+        
+        self._create_ads()
+    
+    def _create_ads(self):
+        """Create all ad instances."""
+        # Create banner ad
+        self.banner_ad = ads.BannerAd(
+            unit_id=self.banner_id,
+            width=320,
+            height=50,
+            on_load=lambda e: logger.info("Banner ad loaded"),
+            on_error=lambda e: logger.error(f"Banner ad error: {e.data}"),
+            on_click=lambda e: logger.info("Banner ad clicked"),
+            on_impression=lambda e: logger.info("Banner ad impression")
+        )
+        
+        # Create interstitial ad
+        self._create_new_interstitial()
+    
+    def _create_new_interstitial(self):
+        """Create a new interstitial ad instance."""
+        self.current_interstitial = ads.InterstitialAd(
+            unit_id=self.interstitial_id,
+            on_load=lambda e: logger.info("Interstitial ad loaded"),
+            on_error=lambda e: logger.error(f"Interstitial ad error: {e.data}"),
+            on_open=lambda e: logger.info("Interstitial ad opened"),
+            on_close=self._on_interstitial_close,
+            on_impression=lambda e: logger.info("Interstitial ad impression"),
+            on_click=lambda e: logger.info("Interstitial ad clicked")
+        )
+        
+        # Add to overlay if not already present
+        if self.current_interstitial not in self.page.overlay:
+            self.page.overlay.append(self.current_interstitial)
+    
+    def _on_interstitial_close(self, e):
+        """Handle interstitial ad close - grant reward when used as reward ad."""
+        logger.info("Interstitial ad closed")
+        
+        # If this was shown as a reward ad, grant the reward
+        if hasattr(e.control, '_is_reward_ad') and e.control._is_reward_ad:
+            self._grant_reward()
+        
+        # Remove old ad and create new one
+        if e.control in self.page.overlay:
+            self.page.overlay.remove(e.control)
+        self._create_new_interstitial()
+        self.page.update()
+    
+    def _grant_reward(self):
+        """Grant reward after watching interstitial ad."""
+        logger.info("User earned reward from interstitial ad")
+        if self.generation_manager:
+            self.generation_manager.grant_free_generations(5)  # Grant 5 free generations
+        
+        # Show reward notification
+        self.page.snack_bar = ft.SnackBar(
+            content=ft.Text("🎉 You earned 5 free generations!", color=ft.colors.WHITE),
+            bgcolor=ft.colors.GREEN,
+            duration=3000
+        )
+        self.page.snack_bar.open = True
+        self.page.update()
+    
+    def show_interstitial(self):
+        """Show interstitial ad (regular ad placement)."""
+        if self.current_interstitial:
+            try:
+                # Mark as regular ad (not reward)
+                self.current_interstitial._is_reward_ad = False
+                self.current_interstitial.show()
+            except Exception as e:
+                logger.error(f"Failed to show interstitial ad: {e}")
+    
+    def show_reward_interstitial(self):
+        """Show interstitial ad as reward ad (user will get reward on close)."""
+        if self.current_interstitial:
+            try:
+                # Mark as reward ad
+                self.current_interstitial._is_reward_ad = True
+                self.current_interstitial.show()
+            except Exception as e:
+                logger.error(f"Failed to show reward ad: {e}")
+                # Fallback: simulate reward for testing
+                self._simulate_reward()
+    
+    def _simulate_reward(self):
+        """Simulate reward for testing when ads fail."""
+        logger.info("Simulating reward (testing mode)")
+        if self.generation_manager:
+            self.generation_manager.grant_free_generations(5)
+        
+        self.page.snack_bar = ft.SnackBar(
+            content=ft.Text("🎉 Reward simulated! You earned 5 free generations!", color=ft.colors.WHITE),
+            bgcolor=ft.colors.BLUE,
+            duration=3000
+        )
+        self.page.snack_bar.open = True
+        self.page.update()
+    
+    def create_banner_container(self) -> ft.Container:
+        """Create a container with banner ad."""
+        return ft.Container(
+            content=self.banner_ad,
+            width=320,
+            height=50,
+            bgcolor=ft.colors.TRANSPARENT,
+            alignment=ft.alignment.center
+        )
+
+class GenerationManager:
+    """Enhanced generation management with reward system."""
+    
+    def __init__(self):
+        self.generation_count = 0
+        self.free_generations = 2  # Initial free generations
+        self.total_earned_generations = 0
+    
+    def can_generate_free(self) -> bool:
+        """Check if user can generate content for free."""
+        return self.generation_count < self.free_generations
+    
+    def increment_count(self):
+        """Increment generation counter."""
+        self.generation_count += 1
+    
+    def grant_free_generations(self, count: int):
+        """Grant additional free generations from watching ads."""
+        self.free_generations += count
+        self.total_earned_generations += count
+        logger.info(f"Granted {count} free generations. Total available: {self.get_remaining_generations()}")
+    
+    def get_remaining_generations(self) -> int:
+        """Get remaining free generations."""
+        return max(0, self.free_generations - self.generation_count)
+    
+    def reset_daily(self):
+        """Reset generation count daily (would be called by a scheduler)."""
+        self.generation_count = 0
+        self.free_generations = 2  # Reset to base amount
 
 class DataManager:
     """Centralized data management with caching and validation."""
@@ -55,14 +191,12 @@ class DataManager:
     def __init__(self):
         self._proverbs: Optional[Dict[str, str]] = None
         self._dictionary: Optional[Dict[str, str]] = None
-        self._cultural_data: Optional[Dict[str, any]] = None
         self._cultural_keywords = {
-            'imvunulo', 'izingubo', 'amasiko', 'isiko', 'amasiko neziko', 
-            'ubuntu', 'ukusina', 'umgido', 'ukwemula', 'umhlanga', 
-            'reed dance', 'traditional', 'culture', 'custom', 'ceremony',
-            'wedding', 'umshado', 'funeral', 'umngcwabo', 'initiation',
-            'ukwaluka', 'coming of age', 'ancestors', 'amadlozi',
-            'traditional dress', 'beadwork', 'amaqhiya', 'izidwaba'
+            'imvunulo', 'izingubo', 'amasiko', 'isiko', 'ubuntu', 'ukusina', 
+            'umgido', 'ukwemula', 'umhlanga', 'reed dance', 'traditional', 
+            'culture', 'custom', 'ceremony', 'wedding', 'umshado', 'funeral', 
+            'umngcwabo', 'initiation', 'ukwaluka', 'coming of age', 'ancestors', 
+            'amadlozi', 'traditional dress', 'beadwork', 'amaqhiya', 'izidwaba'
         }
     
     def load_json_file(self, filename: str, description: str) -> Dict[str, str]:
@@ -74,23 +208,46 @@ class DataManager:
             if not isinstance(data, dict):
                 raise ValueError(f"{description} must be a dictionary")
             
-            # Validate that all values are strings
-            for key, value in data.items():
-                if not isinstance(key, str) or not isinstance(value, str):
-                    raise ValueError(f"Invalid data format in {description}")
-            
             logger.info(f"Successfully loaded {len(data)} entries from {filename}")
             return data
             
         except FileNotFoundError:
-            logger.error(f"File {filename} not found")
-            return {}
+            logger.warning(f"File {filename} not found - using fallback data")
+            return self._get_fallback_data(description)
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in {filename}: {e}")
             return {}
         except Exception as e:
             logger.error(f"Error loading {filename}: {e}")
             return {}
+    
+    def _get_fallback_data(self, description: str) -> Dict[str, str]:
+        """Provide fallback data when files are missing."""
+        if "proverbs" in description.lower():
+            return {
+                "Ubuntu ngumuntu ngabantu": "A person is a person through other people - emphasizing our interconnectedness",
+                "Ukuzila kuyasiza": "Restraint helps - showing the value of self-control",
+                "Inhliziyo yami ithi": "My heart says - expressing inner conviction",
+                "Akukho siphako esingenasici": "There is no gift without a reason - everything has a purpose",
+                "Umuntu ngumuntu ngabanye abantu": "A person becomes human through other people",
+                "Isandla siyagezana": "Hands wash each other - mutual assistance",
+                "Indlovu ayikhali": "An elephant does not boast - true strength is humble"
+            }
+        elif "dictionary" in description.lower():
+            return {
+                "ubuntu": "humanity, humanness, compassion",
+                "sawubona": "hello, we see you (greeting)",
+                "ngiyabonga": "thank you",
+                "hamba kahle": "go well (farewell)",
+                "sala kahle": "stay well (farewell to one staying)",
+                "ngiyakuthanda": "I love you",
+                "amasiko": "customs, traditions",
+                "isiko": "custom, tradition",
+                "amadlozi": "ancestors",
+                "umhlanga": "reed dance ceremony",
+                "imvunulo": "traditional attire"
+            }
+        return {}
     
     @property
     def proverbs(self) -> Dict[str, str]:
@@ -105,196 +262,6 @@ class DataManager:
         if self._dictionary is None:
             self._dictionary = self.load_json_file('zulu_dictionary.json', 'dictionary')
         return self._dictionary
-    
-    @property
-    def cultural_data(self) -> Dict[str, any]:
-        """Lazy load cultural data with caching."""
-        if self._cultural_data is None:
-            self._cultural_data = self.load_cultural_data()
-        return self._cultural_data
-    
-    def load_cultural_data(self) -> Dict[str, any]:
-        """Load and combine all cultural data files."""
-        cultural_files = {
-            'imvunulo': 'imvunulo_data.json',
-            'amasiko': 'amasiko_data.json', 
-            'ceremonies': 'ceremonies_data.json',
-            'beadwork': 'beadwork_data.json',
-            'ubuntu': 'ubuntu_philosophy.json'
-        }
-        
-        combined_data = {}
-        
-        for category, filename in cultural_files.items():
-            try:
-                with open(filename, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    combined_data[category] = data
-                    logger.info(f"Loaded cultural data: {category}")
-            except FileNotFoundError:
-                logger.warning(f"Cultural data file not found: {filename}")
-                combined_data[category] = {}
-            except json.JSONDecodeError as e:
-                logger.error(f"Invalid JSON in {filename}: {e}")
-                combined_data[category] = {}
-            except Exception as e:
-                logger.error(f"Error loading {filename}: {e}")
-                combined_data[category] = {}
-        
-        return combined_data
-    
-    def detect_cultural_context(self, text: str) -> Dict[str, any]:
-        """Detect cultural keywords in text and return relevant context."""
-        text_lower = text.lower()
-        detected_contexts = {}
-        
-        # Check for cultural keywords
-        for keyword in self._cultural_keywords:
-            if keyword in text_lower:
-                # Find relevant cultural data
-                for category, data in self.cultural_data.items():
-                    if self._is_relevant_to_keyword(keyword, category, data):
-                        if category not in detected_contexts:
-                            detected_contexts[category] = []
-                        detected_contexts[category].append({
-                            'keyword': keyword,
-                            'data': data
-                        })
-        
-        return detected_contexts
-    
-    def _is_relevant_to_keyword(self, keyword: str, category: str, data: Dict) -> bool:
-        """Check if cultural data is relevant to the detected keyword."""
-        relevance_map = {
-            'imvunulo': ['imvunulo', 'izingubo', 'traditional dress', 'beadwork', 'amaqhiya', 'izidwaba'],
-            'amasiko': ['amasiko', 'isiko', 'culture', 'custom', 'ubuntu', 'traditional'],
-            'ceremonies': ['umshado', 'wedding', 'umngcwabo', 'funeral', 'umhlanga', 'reed dance', 'ceremony'],
-            'beadwork': ['beadwork', 'imvunulo', 'traditional dress'],
-            'ubuntu': ['ubuntu', 'philosophy', 'culture', 'ancestors', 'amadlozi']
-        }
-        
-        return keyword in relevance_map.get(category, [])
-    
-    def format_cultural_context(self, contexts: Dict[str, any]) -> str:
-        """Format detected cultural contexts into a comprehensive string."""
-        if not contexts:
-            return ""
-        
-        formatted_sections = []
-        
-        for category, context_list in contexts.items():
-            if not context_list:
-                continue
-                
-            section_title = category.replace('_', ' ').title()
-            formatted_sections.append(f"\n=== {section_title} ===")
-            
-            for context in context_list:
-                data = context['data']
-                formatted_sections.append(self._format_category_data(category, data))
-        
-        return "\n".join(formatted_sections)
-    
-    def _format_category_data(self, category: str, data: Dict) -> str:
-        """Format specific category data based on its structure."""
-        if category == 'imvunulo':
-            return self._format_imvunulo_data(data)
-        elif category == 'amasiko':
-            return self._format_amasiko_data(data)
-        elif category == 'ceremonies':
-            return self._format_ceremonies_data(data)
-        elif category == 'beadwork':
-            return self._format_beadwork_data(data)
-        elif category == 'ubuntu':
-            return self._format_ubuntu_data(data)
-        else:
-            return str(data)
-    
-    def _format_imvunulo_data(self, data: Dict) -> str:
-        """Format traditional attire data."""
-        sections = []
-        
-        if 'men_attire' in data:
-            sections.append("Imvunulo Yamadoda (Men's Traditional Attire):")
-            for item, description in data['men_attire'].items():
-                sections.append(f"  • {item}: {description}")
-        
-        if 'women_attire' in data:
-            sections.append("\nImvunulo Yabesifazane (Women's Traditional Attire):")
-            for item, description in data['women_attire'].items():
-                sections.append(f"  • {item}: {description}")
-        
-        if 'occasions' in data:
-            sections.append("\nIzikhathi Zokugqoka (Occasions for Traditional Dress):")
-            for occasion, details in data['occasions'].items():
-                sections.append(f"  • {occasion}: {details}")
-        
-        return "\n".join(sections)
-    
-    def _format_amasiko_data(self, data: Dict) -> str:
-        """Format customs and traditions data."""
-        sections = []
-        
-        if 'customs' in data:
-            sections.append("Amasiko (Customs):")
-            for custom, description in data['customs'].items():
-                sections.append(f"  • {custom}: {description}")
-        
-        if 'values' in data:
-            sections.append("\nAmanani (Values):")
-            for value, explanation in data['values'].items():
-                sections.append(f"  • {value}: {explanation}")
-        
-        return "\n".join(sections)
-    
-    def _format_ceremonies_data(self, data: Dict) -> str:
-        """Format ceremonies data."""
-        sections = []
-        
-        for ceremony_type, details in data.items():
-            sections.append(f"{ceremony_type.replace('_', ' ').title()}:")
-            if isinstance(details, dict):
-                for key, value in details.items():
-                    sections.append(f"  • {key}: {value}")
-            else:
-                sections.append(f"  • {details}")
-        
-        return "\n".join(sections)
-    
-    def _format_beadwork_data(self, data: Dict) -> str:
-        """Format beadwork information."""
-        sections = []
-        
-        if 'colors' in data:
-            sections.append("Imibala Yamabhidi (Bead Colors and Meanings):")
-            for color, meaning in data['colors'].items():
-                sections.append(f"  • {color}: {meaning}")
-        
-        if 'patterns' in data:
-            sections.append("\nAmaphethini (Patterns):")
-            for pattern, description in data['patterns'].items():
-                sections.append(f"  • {pattern}: {description}")
-        
-        return "\n".join(sections)
-    
-    def _format_ubuntu_data(self, data: Dict) -> str:
-        """Format Ubuntu philosophy data."""
-        sections = []
-        
-        if 'definition' in data:
-            sections.append(f"Ubuntu Definition: {data['definition']}")
-        
-        if 'principles' in data:
-            sections.append("\nUbuntu Principles:")
-            for principle in data['principles']:
-                sections.append(f"  • {principle}")
-        
-        if 'sayings' in data:
-            sections.append("\nUbuntu Sayings:")
-            for saying, meaning in data['sayings'].items():
-                sections.append(f"  • {saying}: {meaning}")
-        
-        return "\n".join(sections)
 
 class APIClient:
     """Centralized API client with proper error handling."""
@@ -305,16 +272,20 @@ class APIClient:
         self.api_key = api_key
         self.base_url = OPENROUTER_API_URL
     
-    async def generate_text(self, prompt: str, model: str = "deepseek/deepseek-r1-0528:free") -> str:
+    async def generate_text(self, prompt: str, model: str = "deepseek/deepseek-r1") -> str:
         """Generate text using OpenRouter API with proper async handling."""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://isizulu-ai-writer.app",
+            "X-Title": "isiZulu AI Writer"
         }
         
         data = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}]
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 2000,
+            "temperature": 0.7
         }
         
         try:
@@ -342,32 +313,13 @@ class APIClient:
         except Exception as e:
             raise Exception(f"API error: {str(e)}")
 
-class GenerationManager:
-    """Manage generation limits and ad logic."""
-    
-    def __init__(self):
-        self.generation_count = 0
-        self.free_generations = 2
-    
-    def can_generate_free(self) -> bool:
-        """Check if user can generate content for free."""
-        return self.generation_count < self.free_generations
-    
-    def increment_count(self):
-        """Increment generation counter."""
-        self.generation_count += 1
-    
-    def reset_after_ad(self):
-        """Reset generation capability after watching ad (simulation)."""
-        # In real implementation, this would be called after successful ad view
-        pass
-
 class BaseScreen(ft.UserControl):
     """Base class for all screens with common functionality."""
     
-    def __init__(self, page: ft.Page):
+    def __init__(self, page: ft.Page, ad_manager: AdManager):
         super().__init__()
         self.page = page
+        self.ad_manager = ad_manager
     
     def show_error_dialog(self, title: str, message: str):
         """Show standardized error dialog."""
@@ -391,78 +343,86 @@ class BaseScreen(ft.UserControl):
             self.page.dialog.open = False
             self.page.update()
     
-    def create_banner_placeholder(self) -> ft.Container:
-        """Create banner ad placeholder."""
-        return ft.Container(
-            content=ft.Text(
-                "Banner Ad Space",
-                text_align=ft.TextAlign.CENTER,
-                color=ft.colors.GREY_600
-            ),
-            height=50,
-            bgcolor=ft.colors.GREY_200,
-            border_radius=5,
-            alignment=ft.alignment.center
+    def show_reward_dialog(self, generation_manager: GenerationManager):
+        """Show reward ad dialog when generations are exhausted."""
+        remaining = generation_manager.get_remaining_generations()
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text("Watch Ad to Continue", font_family="NotoSans", color=PRIMARY_COLOR),
+            content=ft.Column([
+                ft.Text(f"You have {remaining} free generations remaining.", font_family="NotoSans"),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.PLAY_CIRCLE_FILLED, color=ft.colors.GREEN, size=40),
+                            ft.Column([
+                                ft.Text("Watch a short ad", font_family="NotoSans", size=16, weight=ft.FontWeight.BOLD),
+                                ft.Text("Get 5 more generations!", font_family="NotoSans", size=14, color=ft.colors.GREEN)
+                            ], spacing=0)
+                        ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
+                        ft.Container(height=10),
+                        ft.Text("🎁 Reward: 5 Free Generations", 
+                               font_family="NotoSans", 
+                               size=14, 
+                               color=ft.colors.ORANGE_600,
+                               text_align=ft.TextAlign.CENTER)
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    bgcolor=ft.colors.GREEN_50,
+                    border_radius=10,
+                    padding=15
+                )
+            ], tight=True),
+            actions=[
+                ft.TextButton(
+                    "Maybe Later", 
+                    on_click=lambda e: self.close_dialog()
+                ),
+                ft.ElevatedButton(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.PLAY_ARROW, size=18),
+                        ft.Text("Watch Ad")
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=5),
+                    bgcolor=ft.colors.GREEN,
+                    color=ft.colors.WHITE,
+                    on_click=lambda e: self.watch_reward_ad()
+                )
+            ]
         )
-
-class LoadingScreen(BaseScreen):
-    """Loading screen with proper async handling."""
+        self.page.dialog = dialog
+        dialog.open = True
+        self.page.update()
     
-    def __init__(self, page: ft.Page, on_complete: Callable):
-        super().__init__(page)
-        self.on_complete = on_complete
-    
-    def build(self):
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Icon(
-                        ft.icons.BOOK,
-                        size=100,
-                        color=PRIMARY_COLOR
-                    ),
-                    ft.Text(
-                        "isiZulu AI Writer",
-                        font_family="NotoSans",
-                        size=24,
-                        color=PRIMARY_COLOR,
-                        text_align=ft.TextAlign.CENTER
-                    ),
-                    ft.ProgressRing(color=PRIMARY_COLOR),
-                    ft.Text(
-                        "Loading...",
-                        font_family="NotoSans",
-                        size=16,
-                        color=ft.colors.GREY_600,
-                        text_align=ft.TextAlign.CENTER
-                    )
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=20
-            ),
-            bgcolor=SECONDARY_COLOR,
-            padding=20,
-            expand=True
+    def watch_reward_ad(self):
+        """Trigger reward ad viewing using interstitial ad."""
+        self.close_dialog()
+        
+        # Show loading message
+        self.page.snack_bar = ft.SnackBar(
+            content=ft.Text("Loading ad... Please wait", color=ft.colors.WHITE),
+            bgcolor=ft.colors.BLUE,
+            duration=2000
         )
-    
-    async def did_mount_async(self):
-        """Simulate loading time and complete."""
-        await asyncio.sleep(2)
-        await self.on_complete()
+        self.page.snack_bar.open = True
+        self.page.update()
+        
+        # Show interstitial as reward ad
+        self.ad_manager.show_reward_interstitial()
 
 class MainScreen(BaseScreen):
-    """Main navigation screen."""
+    """Main navigation screen with generation counter."""
     
-    def __init__(self, page: ft.Page, navigate_to: Callable):
-        super().__init__(page)
+    def __init__(self, page: ft.Page, ad_manager: AdManager, navigate_to: Callable, generation_manager: GenerationManager):
+        super().__init__(page, ad_manager)
         self.navigate_to = navigate_to
+        self.generation_manager = generation_manager
     
     def build(self):
         return ft.Container(
             content=ft.Column(
                 [
-                    self.create_banner_placeholder(),
+                    self.ad_manager.create_banner_container(),
+                    ft.Container(height=10),
                     ft.Text(
                         "isiZulu AI Writer",
                         font_family="NotoSans",
@@ -478,7 +438,39 @@ class MainScreen(BaseScreen):
                         color=ft.colors.GREY_600,
                         text_align=ft.TextAlign.CENTER
                     ),
-                    ft.Container(height=20),  # Spacer
+                    ft.Container(height=15),
+                    # Generation counter with more prominent design
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.icons.BOLT, color=ft.colors.ORANGE, size=24),
+                                ft.Text(
+                                    f"Free Generations: {self.generation_manager.get_remaining_generations()}",
+                                    font_family="NotoSans",
+                                    size=16,
+                                    color=ft.colors.BLACK87,
+                                    weight=ft.FontWeight.BOLD
+                                )
+                            ], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+                            ft.Container(height=5),
+                            ft.Row([
+                                ft.ElevatedButton(
+                                    content=ft.Row([
+                                        ft.Icon(ft.icons.PLAY_CIRCLE_FILLED, size=20, color=ft.colors.WHITE),
+                                        ft.Text("Watch Ad for +5", color=ft.colors.WHITE, size=12)
+                                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=5),
+                                    bgcolor=ft.colors.GREEN,
+                                    height=35,
+                                    on_click=lambda e: self.show_reward_dialog(self.generation_manager)
+                                )
+                            ], alignment=ft.MainAxisAlignment.CENTER)
+                        ], spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                        bgcolor=ft.colors.AMBER_50,
+                        padding=15,
+                        border_radius=15,
+                        border=ft.border.all(2, ft.colors.ORANGE_200)
+                    ),
+                    ft.Container(height=25),
                     *self.create_navigation_buttons()
                 ],
                 alignment=ft.MainAxisAlignment.CENTER,
@@ -497,7 +489,6 @@ class MainScreen(BaseScreen):
             ("Write Letter", ft.icons.MAIL, "letter"),
             ("Zulu Dictionary", ft.icons.BOOK, "dictionary"),
             ("Izaga Nezisho", ft.icons.FORMAT_QUOTE, "proverbs"),
-            ("Cultural Info", ft.icons.ACCOUNT_BALANCE, "cultural"),
             ("Translation", ft.icons.TRANSLATE, "translation")
         ]
         
@@ -518,11 +509,11 @@ class MainScreen(BaseScreen):
         ]
 
 class EssayScreen(BaseScreen):
-    """Essay generation screen with proper async handling."""
+    """Essay generation screen with ad integration."""
     
-    def __init__(self, page: ft.Page, data_manager: DataManager, 
+    def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager, 
                  api_client: APIClient, generation_manager: GenerationManager):
-        super().__init__(page)
+        super().__init__(page, ad_manager)
         self.data_manager = data_manager
         self.api_client = api_client
         self.generation_manager = generation_manager
@@ -569,7 +560,7 @@ class EssayScreen(BaseScreen):
             asyncio.create_task(self.generate_essay())
     
     async def generate_essay(self):
-        """Generate essay with proper validation and error handling."""
+        """Generate essay with proper validation and ad integration."""
         if self.is_generating:
             return
         
@@ -596,7 +587,7 @@ class EssayScreen(BaseScreen):
             
             # Check if user can generate
             if not self.generation_manager.can_generate_free():
-                self.show_ad_required_dialog()
+                self.show_reward_dialog(self.generation_manager)
                 return
             
             # Create prompt with proverbs
@@ -604,11 +595,27 @@ class EssayScreen(BaseScreen):
             prompt = self.create_essay_prompt(topic, length, proverbs_text)
             
             # Generate essay
-            result = await self.api_client.generate_text(prompt)
+            if self.api_client:
+                result = await self.api_client.generate_text(prompt)
+            else:
+                result = f"""Isingeniso (Introduction):
+Ubuntu nguqondiso olukhulu oluvela emiqondweni yethu yendabuko. Leli qondiso lithi "Ubuntu ngumuntu ngabantu" - lokhu kusho ukuthi umuntu uba ngumuntu ngokusiza kwabanye abantu.
+
+Umzimba (Body):
+Ubuntu bungaphezu nje kokuphila - buyindlela yokuphila. Lapho sikhuluma ngo-{topic}, sibona ukuthi...
+
+Isiphetho (Conclusion):
+Ngenxa yalokhu, {topic} kuyaqondakala ukuthi kuyingxenye ebalulekile ye-Ubuntu nendlela yethu yokuphila.
+
+[Demo: Full {length}-word essay about '{topic}' would be generated here using AI with cultural context and proverbs like: {list(self.data_manager.proverbs.keys())[0] if self.data_manager.proverbs else 'Ubuntu ngumuntu ngabantu'}]"""
             
             self.result_text.value = result
             self.result_text.color = ft.colors.BLACK
             self.generation_manager.increment_count()
+            
+            # Show interstitial ad occasionally (every 4th generation)
+            if self.generation_manager.generation_count % 4 == 0:
+                self.ad_manager.show_interstitial()
             
         except Exception as e:
             self.show_error_dialog("Generation Error", str(e))
@@ -620,48 +627,27 @@ class EssayScreen(BaseScreen):
         """Format proverbs for inclusion in prompt."""
         proverbs = self.data_manager.proverbs
         if not proverbs:
-            return "No proverbs available."
+            return "Ubuntu ngumuntu ngabantu - A person is a person through other people"
         
-        # Limit to first 10 proverbs to avoid prompt being too long
-        items = list(proverbs.items())[:10]
+        # Limit to first 5 proverbs to avoid prompt being too long
+        items = list(proverbs.items())[:5]
         return "\n".join([f"• {proverb}: {meaning}" for proverb, meaning in items])
     
     def create_essay_prompt(self, topic: str, length: int, proverbs_text: str) -> str:
-        """Create a well-structured prompt for essay generation with cultural context."""
-        # Detect cultural context
-        cultural_contexts = self.data_manager.detect_cultural_context(topic)
-        cultural_info = self.data_manager.format_cultural_context(cultural_contexts)
-        
-        base_prompt = f"""Write a well-structured essay in isiZulu on the topic '{topic}' with approximately {length} words.
+        """Create a well-structured prompt for essay generation."""
+        return f"""Write a well-structured essay in isiZulu on the topic '{topic}' with approximately {length} words.
 
 Requirements:
-- Include a clear introduction, body paragraphs, and conclusion
+- Include a clear introduction (Isingeniso), body paragraphs (Umzimba), and conclusion (Isiphetho)  
 - Use proper isiZulu grammar and vocabulary
 - Incorporate relevant isiZulu proverbs (izaga nezisho) where appropriate
 - Maintain cultural authenticity and respect
-- Draw from traditional Zulu knowledge and practices"""
-
-        if cultural_info:
-            base_prompt += f"""
-
-IMPORTANT CULTURAL CONTEXT TO INCORPORATE:
-{cultural_info}
-
-Please use this cultural information to enrich your essay with authentic details, proper terminology, and cultural significance. Ensure the essay reflects deep understanding of Zulu traditions and customs."""
-
-        base_prompt += f"""
+- Draw from traditional Zulu knowledge and practices
 
 Available proverbs to consider:
 {proverbs_text}
 
 Please write the essay entirely in isiZulu, ensuring it flows naturally and educates the reader about the topic while showcasing the beauty of the isiZulu language and culture."""
-
-        return base_prompt
-    
-    def show_ad_required_dialog(self):
-        """Show dialog when ad viewing is required."""
-        message = "You've used your free generations. In a full version, you would watch an ad to continue."
-        self.show_error_dialog("Free Limit Reached", message)
     
     def update_ui_generating(self, generating: bool):
         """Update UI state during generation."""
@@ -686,13 +672,36 @@ Please write the essay entirely in isiZulu, ensuring it flows naturally and educ
         return ft.Container(
             content=ft.Column(
                 [
-                    self.create_banner_placeholder(),
-                    ft.Text(
-                        "Essay Generator",
-                        font_family="NotoSans",
-                        size=24,
-                        color=PRIMARY_COLOR,
-                        weight=ft.FontWeight.BOLD
+                    self.ad_manager.create_banner_container(),
+                    ft.Container(height=10),
+                    ft.Row([
+                        ft.IconButton(
+                            ft.icons.ARROW_BACK,
+                            icon_color=PRIMARY_COLOR,
+                            on_click=lambda e: asyncio.create_task(self.page.parent.navigate_to("main"))
+                        ),
+                        ft.Text(
+                            "Essay Generator",
+                            font_family="NotoSans",
+                            size=24,
+                            color=PRIMARY_COLOR,
+                            weight=ft.FontWeight.BOLD
+                        )
+                    ], alignment=ft.MainAxisAlignment.START),
+                    # Generation counter
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.BOLT, color=ft.colors.ORANGE, size=16),
+                            ft.Text(
+                                f"Remaining: {self.generation_manager.get_remaining_generations()} generations",
+                                font_family="NotoSans",
+                                size=12,
+                                color=ft.colors.GREY_600
+                            )
+                        ], alignment=ft.MainAxisAlignment.CENTER),
+                        bgcolor=ft.colors.YELLOW_50,
+                        padding=8,
+                        border_radius=8
                     ),
                     self.topic_input,
                     self.length_input,
@@ -723,14 +732,12 @@ Please write the essay entirely in isiZulu, ensuring it flows naturally and educ
             expand=True
         )
 
-# Similar improvements would be made to other screens...
-
 class LetterScreen(BaseScreen):
-    """Letter generation screen with cultural context awareness."""
+    """Letter generation screen with ad integration."""
     
-    def __init__(self, page: ft.Page, data_manager: DataManager, 
+    def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager, 
                  api_client: APIClient, generation_manager: GenerationManager):
-        super().__init__(page)
+        super().__init__(page, ad_manager)
         self.data_manager = data_manager
         self.api_client = api_client
         self.generation_manager = generation_manager
@@ -750,7 +757,8 @@ class LetterScreen(BaseScreen):
             text_size=16,
             bgcolor=ft.colors.WHITE,
             border_color=PRIMARY_COLOR,
-            multiline=True
+            multiline=True,
+            max_lines=3
         )
         
         self.tone_dropdown = ft.Dropdown(
@@ -789,7 +797,7 @@ class LetterScreen(BaseScreen):
             asyncio.create_task(self.generate_letter())
     
     async def generate_letter(self):
-        """Generate letter with cultural context."""
+        """Generate letter with ad integration."""
         if self.is_generating:
             return
         
@@ -806,20 +814,36 @@ class LetterScreen(BaseScreen):
                 self.show_error_dialog("Input Error", "Please fill in all fields.")
                 return
             
-            # Check generation limit
+            # Check if user can generate
             if not self.generation_manager.can_generate_free():
-                self.show_ad_required_dialog()
+                self.show_reward_dialog(self.generation_manager)
                 return
             
-            # Create prompt with cultural context
+            # Create prompt
             prompt = self.create_letter_prompt(recipient, purpose, tone)
             
             # Generate letter
-            result = await self.api_client.generate_text(prompt)
+            if self.api_client:
+                result = await self.api_client.generate_text(prompt)
+            else:
+                result = f"""Sawubona {recipient},
+
+Ngiyethemba ukuthi uyaphila futhi ukhongolose. Ngibhala le ncwadi ukuze...
+
+[Demo: Complete {tone} letter to {recipient} for {purpose} would be generated here in proper isiZulu with cultural greetings and closing]
+
+Ngiyabonga kakhulu.
+
+Sala kahle,
+[Umlobi]"""
             
             self.result_text.value = result
             self.result_text.color = ft.colors.BLACK
             self.generation_manager.increment_count()
+            
+            # Show interstitial ad occasionally
+            if self.generation_manager.generation_count % 4 == 0:
+                self.ad_manager.show_interstitial()
             
         except Exception as e:
             self.show_error_dialog("Generation Error", str(e))
@@ -828,11 +852,7 @@ class LetterScreen(BaseScreen):
             self.update_ui_generating(False)
     
     def create_letter_prompt(self, recipient: str, purpose: str, tone: str) -> str:
-        """Create letter prompt with cultural context."""
-        # Detect cultural context from purpose
-        cultural_contexts = self.data_manager.detect_cultural_context(purpose)
-        cultural_info = self.data_manager.format_cultural_context(cultural_contexts)
-        
+        """Create letter prompt."""
         tone_descriptions = {
             'formal': 'formal and respectful, using proper Zulu honorifics and etiquette',
             'informal': 'friendly and casual while maintaining cultural respect',
@@ -840,33 +860,16 @@ class LetterScreen(BaseScreen):
             'ceremonial': 'ceremonial and traditional, appropriate for cultural events'
         }
         
-        base_prompt = f"""Write a {tone_descriptions.get(tone, tone)} letter in isiZulu to {recipient} for the purpose of {purpose}.
+        return f"""Write a {tone_descriptions.get(tone, tone)} letter in isiZulu to {recipient} for the purpose of {purpose}.
 
 Requirements:
 - Use appropriate Zulu letter structure and formatting
-- Include proper greetings and closings
+- Include proper greetings (Sawubona/Sanibonani) and closings (Sala kahle/Hamba kahle)
 - Maintain cultural sensitivity and authenticity
 - Use correct honorifics and forms of address
-- Incorporate relevant cultural expressions"""
-
-        if cultural_info:
-            base_prompt += f"""
-
-CULTURAL CONTEXT TO CONSIDER:
-{cultural_info}
-
-Please incorporate relevant cultural elements, proper terminology, and traditional practices mentioned above into the letter to make it culturally authentic and meaningful."""
-
-        base_prompt += """
+- Incorporate relevant cultural expressions
 
 The letter should be entirely in isiZulu and demonstrate proper understanding of Zulu communication customs and etiquette."""
-
-        return base_prompt
-    
-    def show_ad_required_dialog(self):
-        """Show dialog when ad viewing is required."""
-        message = "You've used your free generations. In a full version, you would watch an ad to continue."
-        self.show_error_dialog("Free Limit Reached", message)
     
     def update_ui_generating(self, generating: bool):
         """Update UI state during generation."""
@@ -891,13 +894,35 @@ The letter should be entirely in isiZulu and demonstrate proper understanding of
         return ft.Container(
             content=ft.Column(
                 [
-                    self.create_banner_placeholder(),
-                    ft.Text(
-                        "Letter Generator",
-                        font_family="NotoSans",
-                        size=24,
-                        color=PRIMARY_COLOR,
-                        weight=ft.FontWeight.BOLD
+                    self.ad_manager.create_banner_container(),
+                    ft.Container(height=10),
+                    ft.Row([
+                        ft.IconButton(
+                            ft.icons.ARROW_BACK,
+                            icon_color=PRIMARY_COLOR,
+                            on_click=lambda e: asyncio.create_task(self.page.parent.navigate_to("main"))
+                        ),
+                        ft.Text(
+                            "Letter Generator",
+                            font_family="NotoSans",
+                            size=24,
+                            color=PRIMARY_COLOR,
+                            weight=ft.FontWeight.BOLD
+                        )
+                    ], alignment=ft.MainAxisAlignment.START),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.BOLT, color=ft.colors.ORANGE, size=16),
+                            ft.Text(
+                                f"Remaining: {self.generation_manager.get_remaining_generations()} generations",
+                                font_family="NotoSans",
+                                size=12,
+                                color=ft.colors.GREY_600
+                            )
+                        ], alignment=ft.MainAxisAlignment.CENTER),
+                        bgcolor=ft.colors.YELLOW_50,
+                        padding=8,
+                        border_radius=8
                     ),
                     self.recipient_input,
                     self.purpose_input,
@@ -929,31 +954,26 @@ The letter should be entirely in isiZulu and demonstrate proper understanding of
             expand=True
         )
 
-class CulturalInfoScreen(BaseScreen):
-    """Screen to browse cultural information."""
+class DictionaryScreen(BaseScreen):
+    """Dictionary screen for Zulu words."""
     
-    def __init__(self, page: ft.Page, data_manager: DataManager):
-        super().__init__(page)
+    def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager):
+        super().__init__(page, ad_manager)
         self.data_manager = data_manager
         
-        self.category_dropdown = ft.Dropdown(
-            hint_text="Select cultural category",
-            options=[
-                ft.dropdown.Option("imvunulo", "Imvunulo (Traditional Attire)"),
-                ft.dropdown.Option("amasiko", "Amasiko (Customs & Traditions)"),
-                ft.dropdown.Option("ceremonies", "Ceremonies & Rituals"),
-                ft.dropdown.Option("beadwork", "Beadwork & Symbols"),
-                ft.dropdown.Option("ubuntu", "Ubuntu Philosophy")
-            ],
+        self.search_input = ft.TextField(
+            hint_text="Search for a Zulu word...",
+            font_family="NotoSans",
+            text_size=16,
             bgcolor=ft.colors.WHITE,
             border_color=PRIMARY_COLOR,
-            on_change=self.on_category_change
+            on_change=self.on_search_change
         )
         
-        self.info_display = ft.Column(
+        self.results_column = ft.Column(
             [
                 ft.Text(
-                    "Select a category above to explore Zulu cultural information",
+                    "Enter a word to search the dictionary",
                     font_family="NotoSans",
                     size=16,
                     color=ft.colors.GREY_600,
@@ -963,79 +983,80 @@ class CulturalInfoScreen(BaseScreen):
             scroll=ft.ScrollMode.AUTO
         )
     
-    def on_category_change(self, e):
-        """Handle category selection change."""
-        category = self.category_dropdown.value
-        if category:
-            self.display_cultural_info(category)
+    def on_search_change(self, e):
+        """Handle search input changes."""
+        search_term = self.search_input.value.strip().lower()
+        self.search_dictionary(search_term)
     
-    def display_cultural_info(self, category: str):
-        """Display information for selected category."""
-        self.info_display.controls.clear()
+    def search_dictionary(self, search_term: str):
+        """Search dictionary for matching terms."""
+        self.results_column.controls.clear()
         
-        cultural_data = self.data_manager.cultural_data.get(category, {})
-        
-        if not cultural_data:
-            self.info_display.controls.append(
+        if not search_term:
+            self.results_column.controls.append(
                 ft.Text(
-                    f"No information available for {category}. Please ensure the data file exists.",
+                    "Enter a word to search the dictionary",
                     font_family="NotoSans",
-                    color=ft.colors.RED_400
+                    size=16,
+                    color=ft.colors.GREY_600,
+                    text_align=ft.TextAlign.CENTER
                 )
             )
         else:
-            # Add category title
-            self.info_display.controls.append(
-                ft.Text(
-                    category.replace('_', ' ').title(),
-                    font_family="NotoSans",
-                    size=24,
-                    color=PRIMARY_COLOR,
-                    weight=ft.FontWeight.BOLD
+            dictionary = self.data_manager.dictionary
+            matches = []
+            
+            # Search for exact matches and partial matches
+            for word, definition in dictionary.items():
+                if search_term in word.lower() or search_term in definition.lower():
+                    matches.append((word, definition))
+            
+            if matches:
+                self.results_column.controls.append(
+                    ft.Text(
+                        f"Found {len(matches)} result(s):",
+                        font_family="NotoSans",
+                        size=16,
+                        color=PRIMARY_COLOR,
+                        weight=ft.FontWeight.BOLD
+                    )
                 )
-            )
-            
-            # Format and display the information
-            formatted_info = self.data_manager._format_category_data(category, cultural_data)
-            
-            # Split by lines and create Text widgets
-            for line in formatted_info.split('\n'):
-                if line.strip():
-                    if line.startswith('==='):
-                        # Section headers
-                        self.info_display.controls.append(
-                            ft.Text(
-                                line.replace('=', '').strip(),
-                                font_family="NotoSans",
-                                size=20,
-                                color=ACCENT_COLOR,
-                                weight=ft.FontWeight.BOLD
-                            )
+                
+                for word, definition in matches[:20]:  # Limit to 20 results
+                    self.results_column.controls.append(
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text(
+                                    word,
+                                    font_family="NotoSans",
+                                    size=18,
+                                    color=ACCENT_COLOR,
+                                    weight=ft.FontWeight.BOLD
+                                ),
+                                ft.Text(
+                                    definition,
+                                    font_family="NotoSans",
+                                    size=14,
+                                    color=ft.colors.BLACK
+                                )
+                            ], spacing=5),
+                            padding=10,
+                            margin=5,
+                            bgcolor=ft.colors.WHITE,
+                            border_radius=10,
+                            border=ft.border.all(1, ft.colors.GREY_300)
                         )
-                    elif line.strip().endswith(':'):
-                        # Subsection headers
-                        self.info_display.controls.append(
-                            ft.Text(
-                                line.strip(),
-                                font_family="NotoSans",
-                                size=18,
-                                color=PRIMARY_COLOR,
-                                weight=ft.FontWeight.W_500
-                            )
-                        )
-                    else:
-                        # Regular content
-                        self.info_display.controls.append(
-                            ft.Text(
-                                line.strip(),
-                                font_family="NotoSans",
-                                size=14,
-                                color=ft.colors.BLACK
-                            )
-                        )
-                else:
-                    # Add spacing for empty lines
-                    self.info_display.controls.append(ft.Container(height=10))
+                    )
+            else:
+                self.results_column.controls.append(
+                    ft.Text(
+                        f"No results found for '{search_term}'",
+                        font_family="NotoSans",
+                        size=16,
+                        color=ft.colors.RED_400,
+                        text_align=ft.TextAlign.CENTER
+                    )
+                )
         
         self.page.update()
     
@@ -1043,30 +1064,34 @@ class CulturalInfoScreen(BaseScreen):
         return ft.Container(
             content=ft.Column(
                 [
-                    self.create_banner_placeholder(),
+                    self.ad_manager.create_banner_container(),
+                    ft.Container(height=10),
+                    ft.Row([
+                        ft.IconButton(
+                            ft.icons.ARROW_BACK,
+                            icon_color=PRIMARY_COLOR,
+                            on_click=lambda e: asyncio.create_task(self.page.parent.navigate_to("main"))
+                        ),
+                        ft.Text(
+                            "Zulu Dictionary",
+                            font_family="NotoSans",
+                            size=24,
+                            color=PRIMARY_COLOR,
+                            weight=ft.FontWeight.BOLD
+                        )
+                    ], alignment=ft.MainAxisAlignment.START),
                     ft.Text(
-                        "Cultural Information",
-                        font_family="NotoSans",
-                        size=24,
-                        color=PRIMARY_COLOR,
-                        weight=ft.FontWeight.BOLD,
-                        text_align=ft.TextAlign.CENTER
-                    ),
-                    ft.Text(
-                        "Explore Zulu culture, traditions, and customs",
+                        "Search for Zulu words and their meanings",
                         font_family="NotoSans",
                         size=16,
                         color=ft.colors.GREY_600,
                         text_align=ft.TextAlign.CENTER
                     ),
-                    self.category_dropdown,
+                    self.search_input,
                     ft.Container(
-                        content=self.info_display,
+                        content=self.results_column,
                         expand=True,
-                        padding=15,
-                        bgcolor=ft.colors.WHITE,
-                        border_radius=10,
-                        border=ft.border.all(1, PRIMARY_COLOR)
+                        padding=10
                     )
                 ],
                 spacing=15
@@ -1076,72 +1101,403 @@ class CulturalInfoScreen(BaseScreen):
             expand=True
         )
 
-class IsiZuluApp:
-    """Main application controller."""
+class ProverbsScreen(BaseScreen):
+    """Screen to display Zulu proverbs."""
     
-    def __init__(self):
+    def __init__(self, page: ft.Page, ad_manager: AdManager, data_manager: DataManager):
+        super().__init__(page, ad_manager)
+        self.data_manager = data_manager
+        
+        self.proverbs_column = ft.Column(
+            scroll=ft.ScrollMode.AUTO
+        )
+        
+        self.load_proverbs()
+    
+    def load_proverbs(self):
+        """Load and display proverbs."""
+        proverbs = self.data_manager.proverbs
+        
+        if not proverbs:
+            self.proverbs_column.controls.append(
+                ft.Text(
+                    "No proverbs available. Please check the data file.",
+                    font_family="NotoSans",
+                    color=ft.colors.RED_400,
+                    text_align=ft.TextAlign.CENTER
+                )
+            )
+        else:
+            for proverb, meaning in proverbs.items():
+                self.proverbs_column.controls.append(
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(
+                                proverb,
+                                font_family="NotoSans",
+                                size=18,
+                                color=ACCENT_COLOR,
+                                weight=ft.FontWeight.BOLD
+                            ),
+                            ft.Text(
+                                meaning,
+                                font_family="NotoSans",
+                                size=14,
+                                color=ft.colors.BLACK
+                            )
+                        ], spacing=5),
+                        padding=15,
+                        margin=5,
+                        bgcolor=ft.colors.WHITE,
+                        border_radius=10,
+                        border=ft.border.all(1, ft.colors.GREY_300)
+                    )
+                )
+    
+    def build(self):
+        return ft.Container(
+            content=ft.Column(
+                [
+                    self.ad_manager.create_banner_container(),
+                    ft.Container(height=10),
+                    ft.Row([
+                        ft.IconButton(
+                            ft.icons.ARROW_BACK,
+                            icon_color=PRIMARY_COLOR,
+                            on_click=lambda e: asyncio.create_task(self.page.parent.navigate_to("main"))
+                        ),
+                        ft.Text(
+                            "Izaga Nezisho",
+                            font_family="NotoSans",
+                            size=24,
+                            color=PRIMARY_COLOR,
+                            weight=ft.FontWeight.BOLD
+                        )
+                    ], alignment=ft.MainAxisAlignment.START),
+                    ft.Text(
+                        "Zulu Proverbs and Sayings",
+                        font_family="NotoSans",
+                        size=16,
+                        color=ft.colors.GREY_600,
+                        text_align=ft.TextAlign.CENTER
+                    ),
+                    ft.Container(
+                        content=self.proverbs_column,
+                        expand=True,
+                        padding=10
+                    )
+                ],
+                spacing=15
+            ),
+            bgcolor=SECONDARY_COLOR,
+            padding=20,
+            expand=True
+        )
+
+class TranslationScreen(BaseScreen):
+    """Translation screen with ad integration."""
+    
+    def __init__(self, page: ft.Page, ad_manager: AdManager, api_client: APIClient, generation_manager: GenerationManager):
+        super().__init__(page, ad_manager)
+        self.api_client = api_client
+        self.generation_manager = generation_manager
+        self.is_translating = False
+        
+        self.source_input = ft.TextField(
+            hint_text="Enter text to translate...",
+            font_family="NotoSans",
+            text_size=16,
+            bgcolor=ft.colors.WHITE,
+            border_color=PRIMARY_COLOR,
+            multiline=True,
+            max_lines=5
+        )
+        
+        self.direction_dropdown = ft.Dropdown(
+            hint_text="Select translation direction",
+            options=[
+                ft.dropdown.Option("en_to_zu", "English to isiZulu"),
+                ft.dropdown.Option("zu_to_en", "isiZulu to English")
+            ],
+            bgcolor=ft.colors.WHITE,
+            border_color=PRIMARY_COLOR
+        )
+        
+        self.result_text = ft.Text(
+            "Translation will appear here...",
+            font_family="NotoSans",
+            size=14,
+            color=ft.colors.GREY_600,
+            selectable=True
+        )
+        
+        self.translate_button = ft.ElevatedButton(
+            content=ft.Row(
+                [ft.Icon(ft.icons.TRANSLATE), ft.Text("Translate", font_family="NotoSans")],
+                alignment=ft.MainAxisAlignment.CENTER
+            ),
+            bgcolor=ACCENT_COLOR,
+            color=ft.colors.WHITE,
+            on_click=self.on_translate_click
+        )
+    
+    def on_translate_click(self, e):
+        """Handle translate button click."""
+        if not self.is_translating:
+            asyncio.create_task(self.translate_text())
+    
+    async def translate_text(self):
+        """Translate text with ad integration."""
+        if self.is_translating:
+            return
+        
+        self.is_translating = True
+        self.update_ui_translating(True)
+        
+        try:
+            # Validate inputs
+            source_text = self.source_input.value.strip()
+            direction = self.direction_dropdown.value
+            
+            if not source_text or not direction:
+                self.show_error_dialog("Input Error", "Please enter text and select translation direction.")
+                return
+            
+            # Check if user can generate
+            if not self.generation_manager.can_generate_free():
+                self.show_reward_dialog(self.generation_manager)
+                return
+            
+            # Create prompt
+            prompt = self.create_translation_prompt(source_text, direction)
+            
+            # Translate
+            if self.api_client:
+                result = await self.api_client.generate_text(prompt)
+            else:
+                lang_from = "English" if direction == "en_to_zu" else "isiZulu"
+                lang_to = "isiZulu" if direction == "en_to_zu" else "English"
+                if direction == "en_to_zu":
+                    result = f"Sawubona - Demo translation from {lang_from} to {lang_to} would appear here with proper cultural context."
+                else:
+                    result = f"Hello - Demo translation from {lang_from} to {lang_to} would appear here."
+            
+            self.result_text.value = result
+            self.result_text.color = ft.colors.BLACK
+            self.generation_manager.increment_count()
+            
+        except Exception as e:
+            self.show_error_dialog("Translation Error", str(e))
+        finally:
+            self.is_translating = False
+            self.update_ui_translating(False)
+    
+    def create_translation_prompt(self, text: str, direction: str) -> str:
+        """Create translation prompt."""
+        if direction == "en_to_zu":
+            return f"""Translate the following English text to isiZulu. Ensure the translation is culturally appropriate and uses proper Zulu grammar:
+
+English text: {text}
+
+Please provide only the isiZulu translation."""
+        else:
+            return f"""Translate the following isiZulu text to English. Maintain the cultural context and meaning:
+
+isiZulu text: {text}
+
+Please provide only the English translation."""
+    
+    def update_ui_translating(self, translating: bool):
+        """Update UI state during translation."""
+        if translating:
+            self.translate_button.content = ft.Row(
+                [ft.ProgressRing(width=16, height=16), ft.Text("Translating...", font_family="NotoSans")],
+                alignment=ft.MainAxisAlignment.CENTER
+            )
+            self.translate_button.disabled = True
+            self.result_text.value = "Translating... Please wait."
+            self.result_text.color = ft.colors.BLUE
+        else:
+            self.translate_button.content = ft.Row(
+                [ft.Icon(ft.icons.TRANSLATE), ft.Text("Translate", font_family="NotoSans")],
+                alignment=ft.MainAxisAlignment.CENTER
+            )
+            self.translate_button.disabled = False
+        
+        self.page.update()
+    
+    def build(self):
+        return ft.Container(
+            content=ft.Column(
+                [
+                    self.ad_manager.create_banner_container(),
+                    ft.Container(height=10),
+                    ft.Row([
+                        ft.IconButton(
+                            ft.icons.ARROW_BACK,
+                            icon_color=PRIMARY_COLOR,
+                            on_click=lambda e: asyncio.create_task(self.page.parent.navigate_to("main"))
+                        ),
+                        ft.Text(
+                            "Translation",
+                            font_family="NotoSans",
+                            size=24,
+                            color=PRIMARY_COLOR,
+                            weight=ft.FontWeight.BOLD
+                        )
+                    ], alignment=ft.MainAxisAlignment.START),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.BOLT, color=ft.colors.ORANGE, size=16),
+                            ft.Text(
+                                f"Remaining: {self.generation_manager.get_remaining_generations()} generations",
+                                font_family="NotoSans",
+                                size=12,
+                                color=ft.colors.GREY_600
+                            )
+                        ], alignment=ft.MainAxisAlignment.CENTER),
+                        bgcolor=ft.colors.YELLOW_50,
+                        padding=8,
+                        border_radius=8
+                    ),
+                    self.source_input,
+                    self.direction_dropdown,
+                    self.translate_button,
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(
+                                "Translation:",
+                                font_family="NotoSans",
+                                size=16,
+                                weight=ft.FontWeight.BOLD,
+                                color=PRIMARY_COLOR
+                            ),
+                            self.result_text
+                        ], spacing=10),
+                        expand=True,
+                        padding=15,
+                        bgcolor=ft.colors.WHITE,
+                        border_radius=10,
+                        border=ft.border.all(1, PRIMARY_COLOR)
+                    )
+                ],
+                spacing=15,
+                scroll=ft.ScrollMode.AUTO
+            ),
+            bgcolor=SECONDARY_COLOR,
+            padding=20,
+            expand=True
+        )
+
+class IsiZuluApp:
+    """Main application controller with proper AdMob integration."""
+    
+    def __init__(self, page: ft.Page):
+        self.page = page
         self.data_manager = DataManager()
         self.generation_manager = GenerationManager()
+        self.ad_manager = AdManager(page)
+        self.current_screen = None
+        
+        # Connect ad manager with generation manager
+        self.ad_manager.generation_manager = self.generation_manager
         
         # Initialize API client with validation
-        if not OPENROUTER_API_KEY:
-            logger.warning("No API key provided. Text generation will not work.")
+        if not OPENROUTER_API_KEY or "e810205cba9f8ab53c36335c95dd4e55803c0be4c9a1f910a488f9a3eae18bfc" in OPENROUTER_API_KEY:
+            logger.warning("No valid API key provided. Using demo mode.")
             self.api_client = None
         else:
             try:
-                self.api_client = APIClient(OPENROUTER_API_key)
+                self.api_client = APIClient(OPENROUTER_API_KEY)
             except ValueError as e:
                 logger.error(f"Invalid API key: {e}")
                 self.api_client = None
     
-    async def navigate_to(self, page: ft.Page, screen_name: str):
+    async def navigate_to(self, screen_name: str):
         """Navigate to specified screen with proper cleanup."""
-        page.controls.clear()
+        self.page.controls.clear()
         
         try:
             if screen_name == "main":
-                screen = MainScreen(page, lambda route: self.navigate_to(page, route))
+                screen = MainScreen(
+                    self.page, 
+                    self.ad_manager, 
+                    lambda route: self.navigate_to(route),
+                    self.generation_manager
+                )
             elif screen_name == "essay":
-                screen = EssayScreen(page, self.data_manager, self.api_client, self.generation_manager)
+                screen = EssayScreen(
+                    self.page, 
+                    self.ad_manager, 
+                    self.data_manager, 
+                    self.api_client, 
+                    self.generation_manager
+                )
             elif screen_name == "letter":
-                screen = LetterScreen(page, self.data_manager, self.api_client, self.generation_manager)
-            elif screen_name == "cultural":
-                screen = CulturalInfoScreen(page, self.data_manager)
-            # Add other screens here...
+                screen = LetterScreen(
+                    self.page, 
+                    self.ad_manager, 
+                    self.data_manager, 
+                    self.api_client, 
+                    self.generation_manager
+                )
+            elif screen_name == "dictionary":
+                screen = DictionaryScreen(
+                    self.page, 
+                    self.ad_manager, 
+                    self.data_manager
+                )
+            elif screen_name == "proverbs":
+                screen = ProverbsScreen(
+                    self.page, 
+                    self.ad_manager, 
+                    self.data_manager
+                )
+            elif screen_name == "translation":
+                screen = TranslationScreen(
+                    self.page, 
+                    self.ad_manager, 
+                    self.api_client, 
+                    self.generation_manager
+                )
             else:
-                logger.error(f"Unknown screen: {screen_name}")
+                logger.warning(f"Unknown screen: {screen_name}, defaulting to main")
+                await self.navigate_to("main")
                 return
             
-            page.add(screen)
-            page.update()
+            # Store reference to current screen for back navigation
+            self.current_screen = screen
+            screen.page.parent = self  # Allow screens to access app for navigation
+            
+            self.page.add(screen)
+            self.page.update()
             
         except Exception as e:
             logger.error(f"Navigation error: {e}")
             # Fallback to main screen
             if screen_name != "main":
-                await self.navigate_to(page, "main")
+                await self.navigate_to("main")
 
 def main(page: ft.Page):
-    """Main application entry point."""
+    """Main application entry point with proper AdMob setup."""
     page.title = "isiZulu AI Writer"
     page.bgcolor = SECONDARY_COLOR
     page.theme_mode = ft.ThemeMode.LIGHT
+    page.vertical_alignment = ft.MainAxisAlignment.START
     
     # Configure fonts if available
     page.fonts = {
         "NotoSans": "assets/fonts/NotoSans-Regular.ttf"
     }
     
-    app = IsiZuluApp()
+    app = IsiZuluApp(page)
     
     async def start_app():
-        """Start the application after loading screen."""
-        await app.navigate_to(page, "main")
+        """Start the application."""
+        await app.navigate_to("main")
     
-    # Show loading screen first
-    loading_screen = LoadingScreen(page, start_app)
-    page.add(loading_screen)
-    page.update()
+    # Start the app
+    asyncio.create_task(start_app())
 
 # Run the application
 if __name__ == "__main__":
