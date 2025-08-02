@@ -1,8 +1,9 @@
 
 import flet as ft
+import flet_ads as ads
 
 # AdMob: Initialize ads
-banner_ad = ft.BannerAd(
+banner_ad = ft.Banner(
     ad_unit_id="ca-app-pub-3940256099942544/6300978111",  # Replace with your real Ad Unit ID
     width=320,
     height=50
