@@ -9,14 +9,8 @@ authors = [
 dependencies = [
   "flet==0.27.6",
   "flet-ads==0.1.0",
-  "asyncio"
-  "platform"
-  "os"
-  "typing"
-  "Dict" 
-  "Optional"
-  "Callable"
-  "logging"
+  "asyncio",
+  "requests>=2.28.0"
 ]
 
 [tool.flet]
