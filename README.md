@@ -1,5 +1,5 @@
 # MyApp app
-download and load the model from ''
+download and load the model from 'https://drive.google.com/file/d/1R91eai4ZaZQKv8Z8228Xzi8P4xZWv9dP/view?usp=sharing'
 
 then upload to my-app/src/assets/
 ## Run the app
