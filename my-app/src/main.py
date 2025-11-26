@@ -1327,7 +1327,7 @@ def main(page: ft.Page):
     app = AlzheimerDetectionApp(page)
 
 if __name__ == "__main__":
-    upload_dir = "my-app/src/uploads"
+    upload_dir = "uploads"
     os.makedirs(upload_dir, exist_ok=True)
     
     print("="*80)
