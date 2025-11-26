@@ -1,19 +1,24 @@
 # MyApp app
+download and load the model from ''
 
+then upload to my-app/src/assets/
 ## Run the app
 
-### uv
+###
+```
+cd my-app/src
+```
 
 Run as a desktop app:
 
 ```
-uv run flet run
+python main.py
 ```
 
 Run as a web app:
 
 ```
-uv run flet run --web
+flet run --web main.py
 ```
 
 ### Poetry
